@@ -1,0 +1,110 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #10171b;
+  color: #e3ecef;
+}
+body {
+  margin: 0;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 5%;
+  border-bottom: 1px solid #304249;
+}
+header strong {
+  color: #68d6bf;
+  font-size: 24px;
+}
+header button {
+  margin-left: auto;
+}
+main {
+  max-width: 1100px;
+  margin: 36px auto;
+  padding: 0 24px;
+}
+h1 {
+  font-size: 30px;
+}
+p {
+  line-height: 1.7;
+  color: #aebfc4;
+}
+nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+section {
+  padding: 24px;
+  border: 1px solid #304249;
+  border-radius: 10px;
+  margin-bottom: 24px;
+}
+form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: #bed0d5;
+}
+input,
+select,
+button {
+  font: inherit;
+  padding: 11px;
+  border: 1px solid #42606a;
+  border-radius: 6px;
+  background: #18262c;
+  color: #e3ecef;
+}
+button {
+  cursor: pointer;
+  background: #234d49;
+}
+button:hover {
+  background: #30645c;
+}
+input[type="checkbox"] {
+  align-self: start;
+  width: 20px;
+  height: 20px;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #0b1215;
+  padding: 18px;
+  line-height: 1.6;
+}
+article {
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid #304249;
+  border-radius: 8px;
+}
+article button {
+  margin: 8px 8px 0 0;
+}
+#message {
+  color: #8ee0ca;
+  min-height: 26px;
+}
+[hidden] {
+  display: none !important;
+}
+details {
+  margin: 14px 0;
+}
+summary {
+  cursor: pointer;
+}

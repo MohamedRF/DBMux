@@ -1,0 +1,16 @@
+services:
+  postgres-test:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: dbmux_test
+      POSTGRES_PASSWORD: ${TEST_PG_PASSWORD:?Set TEST_PG_PASSWORD for the disposable test database}
+      POSTGRES_DB: dbmux_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbmux_test -d dbmux_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data

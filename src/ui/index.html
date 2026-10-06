@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DBMux · Development gateway</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <strong>DBMux</strong><span>Development database gateway</span
+      ><button id="logout" hidden>Sign out</button>
+    </header>
+    <main>
+      <p id="message" role="status"></p>
+      <section id="authentication">
+        <h1>Connect your agents. Keep your credentials.</h1>
+        <p>
+          Database passwords stay encrypted on this server. Developers receive
+          scoped, revocable MCP tokens.
+        </p>
+        <form id="login">
+          <label
+            >Administrator name<input
+              name="name"
+              required
+              autocomplete="username" /></label
+          ><label
+            >Password<input
+              name="password"
+              type="password"
+              required
+              minlength="14"
+              autocomplete="current-password" /></label
+          ><label id="bootstrap"
+            >Initial setup token<input
+              name="setupToken"
+              type="password"
+              autocomplete="off" /></label
+          ><button>Continue</button>
+        </form>
+      </section>
+      <div id="workspace" hidden>
+        <nav>
+          <button data-page="connections">Connections</button
+          ><button data-page="tokens">MCP access</button
+          ><button data-page="audit">Change history</button
+          ><button data-page="installation">Installation</button>
+        </nav>
+        <section id="connections">
+          <h1>Connections</h1>
+          <p>Use dedicated application accounts on development databases.</p>
+          <div id="connectionList"></div>
+          <h2>Add or edit connection</h2>
+          <form id="connectionForm">
+            <label
+              >Connection ID<input
+                name="id"
+                required
+                pattern="[a-zA-Z0-9_-]+" /></label
+            ><label>Name<input name="name" required /></label
+            ><label
+              >Engine<select name="engine">
+                <option value="oracle">Oracle</option>
+                <option value="postgres">PostgreSQL</option>
+              </select></label
+            ><label>Host<input name="host" required /></label
+            ><label
+              >Port<input
+                name="port"
+                type="number"
+                value="1521"
+                required /></label
+            ><label>Service / database<input name="database" required /></label
+            ><label
+              >Username<input
+                name="username"
+                required
+                autocomplete="off" /></label
+            ><label
+              >Password (leave empty when editing)<input
+                name="password"
+                type="password"
+                autocomplete="new-password" /></label
+            ><label
+              >Custom Oracle connect string<input name="connectString" /></label
+            ><label>Oracle SID mode<input name="sid" type="checkbox" /></label
+            ><label
+              >PostgreSQL TLS (certificate verified)<input
+                name="ssl"
+                type="checkbox" /></label
+            ><label
+              >Pool minimum<input
+                name="poolMin"
+                type="number"
+                value="0" /></label
+            ><label
+              >Pool maximum<input
+                name="poolMax"
+                type="number"
+                value="5" /></label
+            ><label
+              >Allowed schemas, comma-separated<input
+                name="schemas"
+                required
+                placeholder="APPLICATION_DEV or public" /></label
+            ><label
+              >Access<select name="access">
+                <option value="read-only">Read Only</option>
+                <option value="development-write">Development Write</option>
+                <option value="full-development">Full Development</option>
+                <option value="custom">Custom permission flags</option>
+              </select></label
+            >
+            <label
+              >Custom permission flags (JSON, used for Custom access)<input
+                name="customPermissions"
+                placeholder='{"read":true,"insert":false,"update":false,"delete":false,"create":false,"alter":false,"drop":false,"truncate":false,"executeRoutine":false}' /></label
+            ><label
+              >Additional protected schemas, comma-separated<input
+                name="protectedSchemas" /></label
+            ><label
+              >Require WHERE for UPDATE<input
+                name="requireWhereForUpdate"
+                type="checkbox"
+                checked /></label
+            ><label
+              >Require WHERE for DELETE<input
+                name="requireWhereForDelete"
+                type="checkbox"
+                checked /></label
+            ><label>Enable MCP<input name="enabled" type="checkbox" /></label
+            ><label
+              >Disabled tool names, comma-separated<input
+                name="disabledTools" /></label
+            ><label
+              >Blocked tables, comma-separated<input
+                name="blockedTables" /></label
+            ><label
+              >Blocked columns, comma-separated<input
+                name="blockedColumns" /></label
+            ><button>Save connection</button
+            ><button id="resetConnection" type="button">New connection</button>
+          </form>
+          <p>
+            After saving, test the connection, then enable MCP. Editing requires
+            host/service/user fields again; stored passwords are never returned.
+          </p>
+        </section>
+        <section id="tokens" hidden>
+          <h1>Developer tokens</h1>
+          <p>
+            Create one token per developer. Tokens appear once; revocation does
+            not change database passwords.
+          </p>
+          <div id="tokenList"></div>
+          <form id="tokenForm">
+            <label>Developer / token name<input name="name" required /></label
+            ><label
+              >Connection IDs, comma-separated<input
+                name="connections"
+                required /></label
+            ><label
+              >Permissions<select name="access">
+                <option value="read-only">Read Only</option>
+                <option value="development-write">Development Write</option>
+                <option value="full-development">Full Development</option>
+              </select></label
+            ><label
+              >Expires in days<input
+                name="days"
+                type="number"
+                value="90"
+                min="1"
+                max="365" /></label
+            ><button>Create token</button>
+          </form>
+          <pre id="newToken"></pre>
+          <button id="copyToken">Copy newly created token</button>
+        </section>
+        <section id="audit" hidden>
+          <h1>Change history</h1>
+          <form id="auditForm">
+            <label>Connection ID<input name="connectionId" required /></label
+            ><label
+              >Offset<input
+                name="offset"
+                type="number"
+                value="0"
+                min="0" /></label
+            ><button>Load history</button>
+          </form>
+          <label
+            >Filter loaded history<input
+              id="auditSearch"
+              placeholder="Project, branch, SQL, status"
+          /></label>
+          <div id="auditList"></div>
+        </section>
+        <section id="installation" hidden>
+          <h1>MCP installation</h1>
+          <p>
+            Developers need the endpoint and their token. Set DB_MCP_TOKEN in
+            the client environment. No database drivers or passwords are needed.
+          </p>
+          <div id="clientTabs"></div>
+          <pre id="clientConfig"></pre>
+          <button id="copyConfig">Copy configuration</button>
+          <p>
+            Use HTTPS for remote access. Configuration formats and environment
+            substitution vary by client.
+          </p>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

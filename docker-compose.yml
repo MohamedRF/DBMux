@@ -1,0 +1,36 @@
+services:
+  dbmux:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /app/data
+      MCP_MASTER_KEY_FILE: /run/secrets/mcp_master_key
+      SETUP_TOKEN: ${SETUP_TOKEN:?Set a long random SETUP_TOKEN in .env}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      QUERY_TIMEOUT_SECONDS: ${QUERY_TIMEOUT_SECONDS:-30}
+      DDL_TIMEOUT_SECONDS: ${DDL_TIMEOUT_SECONDS:-60}
+      TRANSACTION_TIMEOUT_SECONDS: ${TRANSACTION_TIMEOUT_SECONDS:-300}
+    volumes:
+      - dbmux_data:/app/data
+    secrets:
+      - mcp_master_key
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 35s
+secrets:
+  mcp_master_key:
+    file: ./secrets/mcp_master_key.txt
+volumes:
+  dbmux_data:
