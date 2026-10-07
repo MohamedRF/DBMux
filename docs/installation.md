@@ -16,7 +16,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/dbmcp.example.edu/privkey.pem;
     client_max_body_size 512k;
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3001;
         proxy_set_header Host $host;
         proxy_http_version 1.1;
         proxy_buffering off;
@@ -36,8 +36,8 @@ Set `PUBLIC_URL=https://dbmcp.example.edu`. Forward Authorization unchanged. Lim
     SSLCertificateFile /etc/letsencrypt/live/dbmcp.example.edu/fullchain.pem
     SSLCertificateKeyFile /etc/letsencrypt/live/dbmcp.example.edu/privkey.pem
     ProxyPreserveHost On
-    ProxyPass / http://127.0.0.1:3000/ timeout=120
-    ProxyPassReverse / http://127.0.0.1:3000/
+    ProxyPass / http://127.0.0.1:3001/ timeout=120
+    ProxyPassReverse / http://127.0.0.1:3001/
 </VirtualHost>
 ```
 

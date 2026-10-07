@@ -19,7 +19,7 @@ openssl rand -hex 32 # paste this separate random value into SETUP_TOKEN in .env
 docker compose up -d --build
 ```
 
-Set `PUBLIC_URL` to the exact browser/client origin before starting. Compose binds to `127.0.0.1:3000` by default for a local reverse proxy. To use a private LAN interface, set `BIND_ADDRESS` to that interface's address and `PUBLIC_URL=http://SERVER_IP:3000` during initial setup. Use HTTPS for remote developer access. SQLite persists in the `dbmux_data` Docker volume; the `data` directory is used by local Node development. A named volume avoids host-directory ownership problems with the non-root container.
+Set `PUBLIC_URL` to the exact browser/client origin before starting. Compose binds to `127.0.0.1:3001` by default for a local reverse proxy. Set `HOST_PORT` in `.env` to change the published port; the container continues listening on port 3000. Update `PUBLIC_URL` to match the browser/client URL when changing ports. To use a private LAN interface, set `BIND_ADDRESS` to that interface's address and `PUBLIC_URL=http://SERVER_IP:3001` during initial setup. Use HTTPS for remote developer access. SQLite persists in the `dbmux_data` Docker volume; the `data` directory is used by local Node development. A named volume avoids host-directory ownership problems with the non-root container.
 
 Open the configured URL. Enter the bootstrap token from `.env`, create an administrator with a password of at least 14 characters, then:
 

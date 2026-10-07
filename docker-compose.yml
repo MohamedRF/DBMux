@@ -4,14 +4,14 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-3001}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
       DATA_DIR: /app/data
       MCP_MASTER_KEY_FILE: /run/secrets/mcp_master_key
       SETUP_TOKEN: ${SETUP_TOKEN:?Set a long random SETUP_TOKEN in .env}
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:${HOST_PORT:-3001}}
       QUERY_TIMEOUT_SECONDS: ${QUERY_TIMEOUT_SECONDS:-30}
       DDL_TIMEOUT_SECONDS: ${DDL_TIMEOUT_SECONDS:-60}
       TRANSACTION_TIMEOUT_SECONDS: ${TRANSACTION_TIMEOUT_SECONDS:-300}
