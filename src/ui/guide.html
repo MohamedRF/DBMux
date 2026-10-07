@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DBMux · User guide</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/guide.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">DBMux<span class="brand-dot">●</span></a
+      ><span>User documentation</span
+      ><a class="header-guide" href="/">Open workspace ↗</a>
+    </header>
+    <main>
+      <p id="message" role="status" aria-live="polite"></p>
+      <section class="guide-hero">
+        <p class="eyebrow">THE TEAM HANDBOOK</p>
+        <h1>From setup to your<br />first database change.</h1>
+        <p>
+          Use DBMux to connect AI coding agents to your development databases,
+          control access, and review changes in one place.
+        </p>
+        <div class="form-actions">
+          <button id="copyGuideLink">Copy guide link</button
+          ><button id="copyGuide">Copy guide as text</button
+          ><button id="printGuide">Print / save PDF</button>
+        </div>
+        <p class="muted">
+          Share this page with your team. It is available without administrator
+          sign-in and contains general instructions only.
+        </p>
+      </section>
+      <div class="guide-layout">
+        <aside>
+          <nav aria-label="Guide contents">
+            <a href="#overview">How DBMux works</a
+            ><a href="#administrators">Administrator setup</a
+            ><a href="#developers">Developer setup</a
+            ><a href="#workflow">Daily workflow</a
+            ><a href="#permissions">Access levels</a
+            ><a href="#history">Review &amp; export</a
+            ><a href="#troubleshooting">Troubleshooting</a
+            ><a href="#limits">Product limits</a>
+          </nav>
+        </aside>
+        <div id="guideContent">
+          <section id="overview">
+            <p class="eyebrow">01 / OVERVIEW</p>
+            <h2>One gateway between agents and databases</h2>
+            <p>
+              Your coding client sends requests to DBMux over MCP (Model Context
+              Protocol). DBMux checks access and SQL policy before using the
+              server’s database connection. Database passwords remain encrypted
+              on the gateway.
+            </p>
+            <div class="flow">
+              <span>Coding client</span><span aria-hidden="true">→</span
+              ><span>DBMux + policy + audit</span
+              ><span aria-hidden="true">→</span
+              ><span>Development database</span>
+            </div>
+            <p>
+              Administrators use the browser workspace to manage connections,
+              developer tokens and history. Developers use their existing coding
+              client and a personal MCP token; they do not need an administrator
+              account.
+            </p>
+          </section>
+          <section id="administrators">
+            <p class="eyebrow">02 / ADMINISTRATORS</p>
+            <h2>Prepare access for your team</h2>
+            <ol>
+              <li>
+                <strong>Finish initial setup.</strong> Open the deployed DBMux
+                URL, enter the bootstrap token supplied by the server operator,
+                and create an administrator password of at least 14 characters.
+                For later visits, sign in with your administrator name and
+                password.
+              </li>
+              <li>
+                <strong>Add a connection.</strong> Choose a stable ID such as
+                project-dev, select Oracle or PostgreSQL, and enter the server
+                address, port, service/database and a dedicated application
+                account. Oracle defaults to 1521; PostgreSQL defaults to 5432.
+              </li>
+              <li>
+                <strong>Set the scope.</strong> List explicit application
+                schemas and choose the minimum access level needed. Keep
+                UPDATE/DELETE WHERE safeguards enabled. Leave MCP disabled while
+                configuring.
+              </li>
+              <li>
+                <strong>Save and test.</strong> Use Test on the connection card.
+                Once connectivity succeeds, enable MCP. When editing, leave the
+                password blank to retain the stored password. Stored custom
+                Oracle connect strings are not displayed; leave that field blank
+                to retain the saved value.
+              </li>
+              <li>
+                <strong>Issue personal access.</strong> In MCP access, enter a
+                developer name, permitted connection IDs, permissions and expiry
+                (1–365 days). Copy the new token immediately and send it
+                privately to its owner.
+              </li>
+              <li>
+                <strong>Share the setup guide.</strong> In MCP installation,
+                select the developer’s client and use Copy team setup guide.
+                Send tokens separately from shared documentation.
+              </li>
+            </ol>
+            <div class="callout">
+              Rotate replaces a token and revokes the old one immediately.
+              Revoke removes access without changing the database password. A
+              lost token cannot be retrieved; issue a replacement.
+            </div>
+          </section>
+          <section id="developers">
+            <p class="eyebrow">03 / DEVELOPERS</p>
+            <h2>Connect your coding client</h2>
+            <ol>
+              <li>
+                Ask your administrator for the MCP endpoint, your personal
+                token, and your permitted connection IDs. You do not need
+                database drivers or passwords.
+              </li>
+              <li>
+                Set <code>DB_MCP_TOKEN</code> in the environment used by your
+                coding client. Replace the placeholder below locally. These
+                examples set the current shell session only; launch your client
+                from that session. A desktop client must be able to read the
+                same environment.
+              </li>
+            </ol>
+            <div class="code-card">
+              <div class="code-heading">
+                <span>PowerShell</span
+                ><button data-copy="powershellExample">Copy command</button>
+              </div>
+              <pre id="powershellExample">
+$env:DB_MCP_TOKEN = "YOUR_PERSONAL_TOKEN"</pre>
+            </div>
+            <div class="code-card">
+              <div class="code-heading">
+                <span>macOS / Linux</span
+                ><button data-copy="unixExample">Copy command</button>
+              </div>
+              <pre id="unixExample">
+export DB_MCP_TOKEN="YOUR_PERSONAL_TOKEN"</pre>
+            </div>
+            <div class="code-card">
+              <div class="code-heading">
+                <span>Command Prompt</span
+                ><button data-copy="cmdExample">Copy command</button>
+              </div>
+              <pre id="cmdExample">set "DB_MCP_TOKEN=YOUR_PERSONAL_TOKEN"</pre>
+            </div>
+            <ol start="3">
+              <li>
+                Save the client configuration provided by your administrator. It
+                must reference your token environment variable and the correct
+                endpoint. Generic MCP templates need adaptation to your client.
+                Use HTTPS for remote access.
+              </li>
+              <li>
+                Restart or reconnect the client. Ask your agent to list
+                connections without making changes:
+              </li>
+            </ol>
+            <div class="code-card">
+              <div class="code-heading">
+                <span>First request</span
+                ><button data-copy="firstPrompt">Copy prompt</button>
+              </div>
+              <pre id="firstPrompt">
+Use DBMux to call db_connections and list my available development connections. Do not make changes.</pre>
+            </div>
+            <p>
+              For setup details, see the official
+              <a href="https://learn.chatgpt.com/docs/extend/mcp?surface=cli"
+                >Codex</a
+              >, <a href="https://code.claude.com/docs/en/mcp">Claude Code</a>,
+              <a href="https://cursor.com/docs/mcp">Cursor</a> and
+              <a
+                href="https://code.visualstudio.com/docs/agents/reference/mcp-configuration"
+                >VS Code</a
+              >
+              instructions. Never commit tokens or paste them into team
+              documentation.
+            </p>
+          </section>
+          <section id="workflow">
+            <p class="eyebrow">04 / DAILY WORKFLOW</p>
+            <h2>Inspect, preview, approve, review</h2>
+            <ol>
+              <li>
+                <strong>Inspect existing conventions.</strong> Start with
+                db_connections, db_schema_context, db_describe_table and
+                db_object_dependencies. Use explicit columns and parameter binds
+                for queries.
+              </li>
+              <li>
+                <strong>Capture a baseline.</strong> Use db_schema_snapshot
+                before your feature. Keep the returned snapshot ID for
+                comparison.
+              </li>
+              <li>
+                <strong>Preview the proposed SQL.</strong> Use db_preview_change
+                for each statement and read the risk and permission result. Name
+                your migration and supply project/branch context for writes.
+              </li>
+              <li>
+                <strong>Apply approved changes.</strong> Use db_apply_migration
+                for ordinary CREATE/ALTER statements. High-risk changes,
+                including DELETE with WHERE, need db_prepare_change, actual
+                human approval, then db_execute_change with the returned
+                changeId and confirm: true. Prepared changes expire after five
+                minutes and are single-use.
+              </li>
+              <li>
+                <strong>Verify and share.</strong> Capture an after snapshot,
+                compare with db_schema_diff, and review db_change_history. Use
+                db_export_changes for ordered successful SQL and its bind
+                manifest; review before replay.
+              </li>
+            </ol>
+            <div class="code-card">
+              <div class="code-heading">
+                <span>A starting prompt — replace PROJECT_DEV</span
+                ><button data-copy="workflowPrompt">Copy prompt</button>
+              </div>
+              <pre id="workflowPrompt">
+Using DBMux connection PROJECT_DEV, inspect the allowed schemas and relevant table dependencies. Capture a baseline schema snapshot. Propose the changes for my feature and preview each SQL statement. Include my project and branch in write context. Wait for my approval before applying changes, then capture an after snapshot and show the diff and change history.</pre>
+            </div>
+            <p>
+              PostgreSQL uses $1-style placeholders with bind arrays; Oracle
+              uses :id-style placeholders with named bind objects. Queries
+              default to 100 rows and cap at 1,000. Retained transactions use
+              db_transaction_begin / execute / commit / rollback; they are
+              owner-bound and roll back on expiry or server shutdown. Oracle
+              permits DML only in retained transactions; its DDL commits
+              implicitly.
+            </p>
+          </section>
+          <section id="permissions">
+            <p class="eyebrow">05 / ACCESS</p>
+            <h2>Understand your permissions</h2>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Level</th>
+                    <th>Available operations</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Read Only</td>
+                    <td>Schema inspection and permitted SELECT queries.</td>
+                  </tr>
+                  <tr>
+                    <td>Development Write</td>
+                    <td>
+                      Read, INSERT, UPDATE, DELETE, CREATE and ALTER, subject to
+                      policy and confirmation.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Full Development</td>
+                    <td>
+                      Development Write plus DROP and TRUNCATE, subject to
+                      policy and confirmation.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Custom</td>
+                    <td>
+                      Administrator-defined connection permission flags. Token
+                      grants still limit access.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Effective permissions are the intersection of token grants and
+              connection grants. A broader token cannot override a restricted
+              connection. Enabled connections, allowed schemas, blocked objects,
+              disabled tools and token expiry are checked on every call.
+              Arbitrary routine execution is denied.
+            </p>
+          </section>
+          <section id="history">
+            <p class="eyebrow">06 / REVIEW</p>
+            <h2>Read the change trail</h2>
+            <p>
+              In Change history, enter a connection ID and load records. Search
+              the loaded page by project, branch, SQL or status. Expand a record
+              to inspect SQL, parameters and context; copy details or SQL for a
+              review. Increase Offset to load older records (the default page
+              contains up to 100 records).
+            </p>
+            <p>
+              Schema diffs describe catalog changes, not row changes, and cannot
+              reconstruct exact SQL for external edits. Exports use successful
+              recorded MCP changes and include bind manifests. Audit SQL and
+              parameters may contain application data; share them only with
+              authorized teammates.
+            </p>
+            <div class="callout">
+              A failed or pending migration may have applied some statements.
+              Review the recorded progress and actual database state before
+              retrying. Oracle DDL cannot be rolled back as a retained DML
+              transaction.
+            </div>
+          </section>
+          <section id="troubleshooting">
+            <p class="eyebrow">07 / HELP</p>
+            <h2>Get unstuck</h2>
+            <details open>
+              <summary>The client reports an authentication error</summary>
+              <p>
+                Confirm DB_MCP_TOKEN is visible to the client process, then
+                restart the client. Ask the administrator whether the token
+                expired, was revoked or was rotated. A developer token is
+                separate from an administrator session.
+              </p>
+            </details>
+            <details>
+              <summary>db_connections returns an empty list</summary>
+              <p>
+                Ask the administrator to check that MCP is enabled and your
+                token includes the correct connection IDs. Creating a token does
+                not automatically enable a connection.
+              </p>
+            </details>
+            <details>
+              <summary>A query or change is denied</summary>
+              <p>
+                Check the allowed schema, connection and token permissions,
+                disabled tools and blocked tables/columns. UPDATE/DELETE need a
+                top-level WHERE by default. Unknown syntax, administrative SQL,
+                RETURNING, CASCADE and unsplit scripts are deliberately denied.
+                A WHERE clause alone does not guarantee a safe change.
+              </p>
+            </details>
+            <details>
+              <summary>The server cannot reach the database</summary>
+              <p>
+                The administrator should use Test and check the database
+                address, service, account, TLS and firewall. Inside Docker,
+                localhost refers to the gateway container; use
+                host.docker.internal for a database on the Docker host, or the
+                appropriate reachable LAN/service address.
+              </p>
+            </details>
+            <details>
+              <summary>The copy button does not work</summary>
+              <p>
+                Use HTTPS or localhost and allow clipboard access. If access is
+                unavailable, select the displayed text and copy manually.
+                Command examples contain placeholders; replace those on your own
+                machine.
+              </p>
+            </details>
+          </section>
+          <section id="limits">
+            <p class="eyebrow">08 / PRODUCT STATUS</p>
+            <h2>Deployment and validation limits</h2>
+            <p>
+              DBMux is a self-hosted development gateway. Live Oracle 19c
+              acceptance and a deployment-specific security review are still
+              required before production use. Oracle Thin mode is implemented;
+              Thick mode is not enabled. Client examples follow official
+              documentation, but individual GUI clients have not been
+              acceptance-tested.
+            </p>
+            <p>
+              Run one gateway process per metadata volume. Server operators must
+              configure HTTPS, access restrictions and backups. Preserve the
+              SQLite data and master key separately; losing the key makes
+              encrypted data unrecoverable. Use a SQLite-aware backup or stop
+              the gateway before copying database files.
+            </p>
+          </section>
+        </div>
+      </div>
+      <footer>
+        DBMux · Development database gateway <a href="/">Back to workspace ↗</a>
+      </footer>
+    </main>
+  </body>
+</html>

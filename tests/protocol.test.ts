@@ -45,6 +45,13 @@ test("real SDK v2 Streamable HTTP handshake, tools, resources, scopes and revoca
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const bridgeClient = new Client({ name: "bridge-test", version: "1.0.0" });
   try {
+    const guideResponse = await fetch(url + "/guide.html");
+    assert.equal(guideResponse.status, 200);
+    const guide = await guideResponse.text();
+    assert.match(guide, /Developer setup/);
+    assert.match(guide, /YOUR_PERSONAL_TOKEN/);
+    assert.ok(!guide.includes(config.SETUP_TOKEN));
+    assert.equal((await fetch(url + "/api/installation")).status, 401);
     assert.equal(
       (
         await fetch(url + "/mcp", {
