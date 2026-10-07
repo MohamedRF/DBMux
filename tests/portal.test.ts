@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -236,6 +237,8 @@ test("portal token lifecycle, immediate scope changes and secret-safe downloadab
         requestId: String(i),
       });
       store.finishActivity(id, "success", 1);
+      // Keep HTTP/client idle timers running during slow synchronous disk writes.
+      if ((i + 1) % 50 === 0) await setImmediate();
     }
     const exportResponse = await request(
       "/activity/export?actor=Export%20fixture&limit=1&offset=999",
@@ -268,6 +271,7 @@ test("portal token lifecycle, immediate scope changes and secret-safe downloadab
         sql: "SELECT 1",
         parameters: [],
       });
+      if ((i + 1) % 50 === 0) await setImmediate();
     }
     assert.equal(
       (await request("/audit/export?connectionId=dev", "GET", undefined, ""))
