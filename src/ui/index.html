@@ -8,6 +8,7 @@
     <script type="module" src="/app.js"></script>
   </head>
   <body>
+    <a class="skip-link" href="#workspace">Skip to workspace</a>
     <header>
       <a class="brand" href="/">DBMux<span class="brand-dot">●</span></a
       ><span>Development database gateway</span>
@@ -20,7 +21,7 @@
       ><button id="logout" hidden>Sign out</button>
     </header>
     <main>
-      <p id="message" role="status"></p>
+      <p id="message" role="status" aria-live="polite"></p>
       <section id="authentication">
         <p class="eyebrow">YOUR DATABASES. YOUR CONTROL.</p>
         <h1>Connect your agents.<br />Keep your credentials.</h1>
@@ -54,7 +55,8 @@
           <button data-page="connections" aria-current="page">
             Connections</button
           ><button data-page="tokens">MCP access</button
-          ><button data-page="audit">Change history</button
+          ><button data-page="activity">Activity logs</button
+          ><button data-page="audit">Database history</button
           ><button data-page="installation">MCP installation</button
           ><a href="/guide.html" target="_blank" rel="noreferrer"
             >Documentation ↗</a
@@ -78,6 +80,12 @@
               >Follow the setup guide ↗</a
             >
           </div>
+          <label
+            >Find a connection<input
+              id="connectionSearch"
+              type="search"
+              placeholder="Name, engine or connection ID"
+          /></label>
           <div id="connectionList"></div>
           <h2 id="connectionHeading">Add a connection</h2>
           <form id="connectionForm">
@@ -213,9 +221,26 @@
           <h1>Developer tokens</h1>
           <p>
             Create one token per developer. Tokens appear once; revocation does
-            not change database passwords.
+            not change database passwords. Edit active tokens to update access.
+            Revoke a token before deleting it; activity logs are retained.
           </p>
+          <div class="toolbar">
+            <label
+              >Find a token<input
+                id="tokenSearch"
+                type="search"
+                placeholder="Developer name or connection" /></label
+            ><label
+              >Status<select id="tokenStatus">
+                <option value="all">All tokens</option>
+                <option value="active">Active</option>
+                <option value="expired">Expired</option>
+                <option value="revoked">Revoked</option>
+              </select></label
+            >
+          </div>
           <div id="tokenList"></div>
+          <h2 id="tokenHeading">Create a developer token</h2>
           <form id="tokenForm">
             <label>Developer / token name<input name="name" required /></label
             ><label
@@ -237,8 +262,18 @@
                 value="90"
                 min="1"
                 max="365" /></label
-            ><button>Create token</button>
+            ><label hidden id="tokenCustomLabel"
+              >Custom permissions (JSON)<input name="customPermissions"
+            /></label>
+            <div class="form-actions">
+              <button id="saveToken">Create token</button
+              ><button id="resetToken" type="button">Cancel / new token</button>
+            </div>
           </form>
+          <p id="tokenEditNote">
+            Choose explicit connection access. Permissions also respect each
+            connection’s policy.
+          </p>
           <div id="tokenReveal" class="callout" hidden>
             <h2>Your new token</h2>
             <p>
@@ -250,7 +285,11 @@
           </div>
         </section>
         <section id="audit" hidden>
-          <h1>Change history</h1>
+          <h1>Database history</h1>
+          <p>
+            Inspect audited SQL operations and their outcomes. Use Activity logs
+            for caller and network details.
+          </p>
           <form id="auditForm">
             <label
               >Connection ID<input
@@ -270,7 +309,77 @@
               id="auditSearch"
               placeholder="Project, branch, SQL, status"
           /></label>
+          <button id="downloadAllHistory">
+            Download all connection history (NDJSON)
+          </button>
+          <button id="downloadHistory" disabled>
+            Download loaded history (JSON)
+          </button>
           <div id="auditList"></div>
+        </section>
+        <section id="activity" hidden>
+          <h1>Activity logs</h1>
+          <p>
+            Review MCP requests, tool results and portal API access. Caller
+            names identify the token owner; the source is the direct peer
+            address, which may be a proxy. Bodies, credentials and raw errors
+            are excluded.
+          </p>
+          <form id="activityForm">
+            <label
+              >Type<select name="kind">
+                <option value="">All activity</option>
+                <option value="tool">MCP tools</option>
+                <option value="mcp">MCP requests</option>
+                <option value="api">Portal API</option>
+              </select></label
+            >
+            <label
+              >Outcome<select name="status">
+                <option value="">All outcomes</option>
+                <option>success</option>
+                <option>error</option>
+                <option>pending</option>
+                <option>aborted</option>
+              </select></label
+            >
+            <label
+              >Caller name<input
+                name="actor"
+                placeholder="Exact developer or administrator name"
+                maxlength="100"
+            /></label>
+            <label>From<input type="datetime-local" name="from" /></label
+            ><label>To<input type="datetime-local" name="to" /></label>
+            <button>Apply filters</button>
+          </form>
+          <div class="toolbar">
+            <p id="activitySummary" role="status">Load activity to begin.</p>
+            <button id="refreshActivity">Refresh</button
+            ><button id="downloadActivity">
+              Download all matching logs (NDJSON)
+            </button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <caption>
+                Recent gateway activity
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Time / result</th>
+                  <th scope="col">Caller</th>
+                  <th scope="col">Operation</th>
+                  <th scope="col">Source / duration</th>
+                </tr>
+              </thead>
+              <tbody id="activityList"></tbody>
+            </table>
+          </div>
+          <div class="form-actions">
+            <button id="activityPrevious" disabled>Previous</button
+            ><button id="activityNext" disabled>Next</button>
+          </div>
         </section>
         <section id="installation" hidden>
           <h1>MCP installation</h1>

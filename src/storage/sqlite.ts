@@ -5,6 +5,7 @@ import type { Vault } from "../security/encryption.js";
 
 export class Store {
   readonly db: DatabaseSync;
+  private closed = false;
   constructor(
     directory: string,
     readonly vault: Vault,
@@ -15,6 +16,8 @@ export class Store {
     if (process.platform !== "win32") chmodSync(file, 0o600);
     this.db
       .exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+      CREATE TABLE IF NOT EXISTS activity_log(id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT NOT NULL,kind TEXT NOT NULL,actor_id TEXT NOT NULL,actor_name TEXT NOT NULL,operation TEXT NOT NULL,source TEXT NOT NULL,request_id TEXT NOT NULL,status TEXT NOT NULL,duration_ms INTEGER NOT NULL DEFAULT 0,http_status INTEGER,error_code TEXT);
+      CREATE INDEX IF NOT EXISTS activity_time ON activity_log(timestamp,id);
       CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT NOT NULL,owner TEXT NOT NULL,connection_id TEXT NOT NULL,tool TEXT NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS mcp_migrations(connection_id TEXT NOT NULL,name TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(connection_id,name));`);
@@ -73,12 +76,17 @@ export class Store {
       .prepare("UPDATE audit_log SET status=?,payload=? WHERE id=?")
       .run(status, this.vault.seal(payload), id);
   }
-  history(connectionId: string, limit = 100, offset = 0) {
+  history(
+    connectionId: string,
+    limit = 100,
+    offset = 0,
+    snapshotId = Number.MAX_SAFE_INTEGER,
+  ) {
     return this.db
       .prepare(
-        "SELECT id,timestamp,owner,connection_id,tool,status,payload FROM audit_log WHERE connection_id=? ORDER BY id LIMIT ? OFFSET ?",
+        "SELECT id,timestamp,owner,connection_id,tool,status,payload FROM audit_log WHERE connection_id=? AND id<=? ORDER BY id LIMIT ? OFFSET ?",
       )
-      .all(connectionId, limit, offset)
+      .all(connectionId, snapshotId, limit, offset)
       .map((row) => ({
         id: Number(row.id),
         timestamp: String(row.timestamp),
@@ -89,7 +97,110 @@ export class Store {
         payload: this.vault.open<Record<string, unknown>>(String(row.payload)),
       }));
   }
+  startActivity(event: {
+    kind: string;
+    actorId: string;
+    actorName: string;
+    operation: string;
+    source: string;
+    requestId: string;
+  }) {
+    return Number(
+      this.db
+        .prepare(
+          "INSERT INTO activity_log(timestamp,kind,actor_id,actor_name,operation,source,request_id,status) VALUES(?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          new Date().toISOString(),
+          event.kind,
+          event.actorId,
+          event.actorName,
+          event.operation,
+          event.source,
+          event.requestId,
+          "pending",
+        ).lastInsertRowid,
+    );
+  }
+  identifyActivity(id: number, actorId: string, actorName: string) {
+    this.db
+      .prepare("UPDATE activity_log SET actor_id=?,actor_name=? WHERE id=?")
+      .run(actorId, actorName, id);
+  }
+  finishActivity(
+    id: number,
+    status: string,
+    duration: number,
+    httpStatus?: number,
+    errorCode?: string,
+  ) {
+    // Response close events may arrive after graceful storage shutdown.
+    if (this.closed) return;
+    this.db
+      .prepare(
+        "UPDATE activity_log SET status=?,duration_ms=?,http_status=?,error_code=? WHERE id=?",
+      )
+      .run(status, duration, httpStatus ?? null, errorCode ?? null, id);
+  }
+  activity(query: {
+    kind?: string;
+    status?: string;
+    actor?: string;
+    from?: string;
+    to?: string;
+    limit: number;
+    offset: number;
+    beforeId?: number;
+    snapshotId?: number;
+    count?: boolean;
+  }) {
+    const predicates: string[] = [];
+    const values: string[] = [];
+    for (const [column, value, operator] of [
+      ["kind", query.kind, "="],
+      ["status", query.status, "="],
+      ["actor_name", query.actor, "="],
+      ["timestamp", query.from, ">="],
+      ["timestamp", query.to, "<="],
+    ]) {
+      if (value) {
+        predicates.push(`${column} ${operator} ?`);
+        values.push(value);
+      }
+    }
+    if (query.beforeId !== undefined) {
+      predicates.push("id < ?");
+      values.push(String(query.beforeId));
+    }
+    if (query.snapshotId !== undefined) {
+      predicates.push("id <= ?");
+      values.push(String(query.snapshotId));
+    }
+    const where = predicates.length ? " WHERE " + predicates.join(" AND ") : "";
+    const total =
+      query.count === false
+        ? 0
+        : Number(
+            this.db
+              .prepare("SELECT COUNT(*) AS total FROM activity_log" + where)
+              .get(...values)?.total,
+          );
+    const rows = this.db
+      .prepare(
+        "SELECT id,timestamp,kind,actor_id,actor_name,operation,source,request_id,status,duration_ms,http_status,error_code FROM activity_log" +
+          where +
+          " ORDER BY id DESC LIMIT ? OFFSET ?",
+      )
+      .all(...values, query.limit, query.offset);
+    return { rows, total, limit: query.limit, offset: query.offset };
+  }
   close() {
+    this.db
+      .prepare(
+        "UPDATE activity_log SET status='aborted' WHERE status='pending'",
+      )
+      .run();
+    this.closed = true;
     this.db.close();
   }
 }

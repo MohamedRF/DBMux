@@ -100,6 +100,48 @@ export class Auth {
       );
     return token;
   }
+  update(
+    id: string,
+    input: {
+      name: string;
+      connections: string[];
+      permissions: Permissions;
+      days?: number;
+    },
+  ) {
+    const existing = this.store.get<Identity>("token", id);
+    if (!existing)
+      throw new GatewayError("NOT_FOUND", "Token unavailable.", 404);
+    if (existing.revoked || existing.expiresAt <= Date.now())
+      throw new GatewayError(
+        "TOKEN_INACTIVE",
+        "Only active tokens can be edited. Create a replacement token.",
+        409,
+      );
+    const token = {
+      ...existing,
+      name: input.name,
+      connections: input.connections,
+      permissions: input.permissions,
+      expiresAt:
+        input.days === undefined
+          ? existing.expiresAt
+          : Date.now() + input.days * 86400000,
+    };
+    this.store.put("token", id, token);
+    return this.publicToken(token);
+  }
+  remove(id: string) {
+    const token = this.store.get<Identity>("token", id);
+    if (!token) throw new GatewayError("NOT_FOUND", "Token unavailable.", 404);
+    if (!token.revoked && token.expiresAt > Date.now())
+      throw new GatewayError(
+        "TOKEN_ACTIVE",
+        "Revoke the token before deleting it.",
+        409,
+      );
+    this.store.remove("token", id);
+  }
   revoke(id: string) {
     const token = this.store.get<Identity>("token", id);
     if (!token) throw new GatewayError("NOT_FOUND", "Token unavailable.", 404);

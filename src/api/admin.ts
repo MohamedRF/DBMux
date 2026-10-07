@@ -5,8 +5,35 @@ import type { Config } from "../config/index.js";
 import { permissionsSchema } from "../security/permissions.js";
 import { hash } from "../security/encryption.js";
 import { GatewayError } from "../security/errors.js";
+import { requestActivity } from "../services/activity.js";
 export const bearer = (req: express.Request) =>
   req.headers.authorization?.match(/^Bearer (\S+)$/)?.[1] ?? "";
+function streamNdjson(
+  res: express.Response,
+  next: express.NextFunction,
+  filename: string,
+  readPage: () => unknown[],
+) {
+  res.setHeader("Content-Type", "application/x-ndjson");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  const write = () => {
+    if (res.destroyed) return;
+    try {
+      const rows = readPage();
+      if (!rows.length) {
+        res.end();
+        return;
+      }
+      if (!res.write(rows.map((row) => JSON.stringify(row) + "\n").join("")))
+        res.once("drain", write);
+      else setImmediate(write);
+    } catch (error) {
+      if (res.headersSent) res.destroy();
+      next(error);
+    }
+  };
+  write();
+}
 export function adminRouter(gateway: Gateway, config: Config) {
   const router = express.Router();
   router.get("/setup", (_req, res) =>
@@ -28,7 +55,15 @@ export function adminRouter(gateway: Gateway, config: Config) {
   });
   router.post("/login", (req, res) => {
     const a = credentials.parse(req.body);
-    res.json({ session: gateway.auth.login(a.name, a.password) });
+    const session = gateway.auth.login(a.name, a.password);
+    const activity = requestActivity.getStore();
+    if (activity?.activityId)
+      gateway.manager.store.identifyActivity(
+        activity.activityId,
+        "admin",
+        a.name,
+      );
+    res.json({ session });
   });
   router.use((req, _res, next) => {
     gateway.auth.admin(bearer(req));
@@ -82,7 +117,7 @@ export function adminRouter(gateway: Gateway, config: Config) {
   });
   router.get("/tokens", (_req, res) => res.json(gateway.auth.list()));
   const tokenSchema = z.object({
-    name: z.string().min(1).max(100),
+    name: z.string().trim().min(1).max(100),
     connections: z.array(z.string()).min(1).max(100),
     permissions: permissionsSchema,
     days: z.number().int().min(1).max(365).default(90),
@@ -94,9 +129,20 @@ export function adminRouter(gateway: Gateway, config: Config) {
       .status(201)
       .json(gateway.auth.create(a.name, a.connections, a.permissions, a.days));
   });
+  router.put("/tokens/:id", (req, res) => {
+    const input = tokenSchema
+      .extend({ days: z.number().int().min(1).max(365).optional() })
+      .parse(req.body);
+    for (const id of input.connections) gateway.manager.configFor(id);
+    res.json(gateway.auth.update(String(req.params.id), input));
+  });
   router.delete("/tokens/:id", async (req, res) => {
     gateway.auth.revoke(String(req.params.id));
     res.json({ revoked: true });
+  });
+  router.post("/tokens/:id/remove", (req, res) => {
+    gateway.auth.remove(String(req.params.id));
+    res.json({ deleted: true });
   });
   router.post("/tokens/:id/rotate", (req, res) => {
     const token = gateway.auth.current(String(req.params.id));
@@ -125,6 +171,75 @@ export function adminRouter(gateway: Gateway, config: Config) {
         query.offset,
       ),
     );
+  });
+  router.get("/audit/export", (req, res, next) => {
+    const { connectionId } = z
+      .object({ connectionId: z.string().min(1).max(64) })
+      .parse(req.query);
+    gateway.manager.configFor(connectionId);
+    const snapshot = Number(
+      gateway.manager.store.db
+        .prepare("SELECT MAX(id) AS id FROM audit_log WHERE connection_id=?")
+        .get(connectionId)?.id ?? 0,
+    );
+    let offset = 0;
+    streamNdjson(res, next, "dbmux-history.ndjson", () => {
+      const rows = gateway.manager.store.history(
+        connectionId,
+        500,
+        offset,
+        snapshot,
+      );
+      offset += rows.length;
+      return rows;
+    });
+  });
+  const activityQuery = z
+    .object({
+      kind: z.enum(["api", "mcp", "tool"]).optional(),
+      status: z.enum(["pending", "success", "error", "aborted"]).optional(),
+      actor: z.string().max(100).optional(),
+      from: z.iso
+        .datetime()
+        .transform((value) => new Date(value).toISOString())
+        .optional(),
+      to: z.iso
+        .datetime()
+        .transform((value) => new Date(value).toISOString())
+        .optional(),
+      limit: z.coerce.number().int().min(1).max(1000).default(50),
+      offset: z.coerce.number().int().min(0).max(10000000).default(0),
+    })
+    .refine((q) => !q.from || !q.to || q.from <= q.to, "Invalid date range");
+  router.get("/activity", (req, res) =>
+    res.json(
+      gateway.manager.store.activity({
+        ...activityQuery.parse(req.query),
+        snapshotId:
+          (requestActivity.getStore()?.activityId ?? Number.MAX_SAFE_INTEGER) -
+          1,
+      }),
+    ),
+  );
+  router.get("/activity/export", (req, res, next) => {
+    const query = activityQuery.parse(req.query);
+    // Limit exported IDs to calls that began before this request.
+    const snapshot =
+      (requestActivity.getStore()?.activityId ?? Number.MAX_SAFE_INTEGER) - 1;
+    let beforeId = snapshot + 1;
+    streamNdjson(res, next, "dbmux-activity.ndjson", () => {
+      const page = gateway.manager.store.activity({
+        ...query,
+        limit: 500,
+        offset: 0,
+        beforeId,
+        snapshotId: snapshot,
+        count: false,
+      });
+      if (page.rows.length)
+        beforeId = Number(page.rows[page.rows.length - 1]!.id);
+      return page.rows;
+    });
   });
   router.get("/installation", (_req, res) =>
     res.json({

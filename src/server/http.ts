@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { requestActivity } from "../services/activity.js";
 import express from "express";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { createMcp } from "./mcp.js";
@@ -43,6 +45,81 @@ export async function serveMcp(
 export function createApp(gateway: Gateway, config: Config) {
   const app = express();
   app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    if (!(
+      req.path === "/mcp" ||
+      req.path === "/api" ||
+      req.path.startsWith("/api/")
+    ))
+      return next();
+    let actorId = "anonymous",
+      actorName = "Unauthenticated";
+    try {
+      if (req.path === "/mcp") {
+        const token = gateway.auth.resolve(bearer(req));
+        actorId = token.id;
+        actorName = token.name;
+      } else {
+        gateway.auth.admin(bearer(req));
+        actorId = "admin";
+        actorName =
+          gateway.manager.store.get<{ name: string }>("admin", "singleton")
+            ?.name ?? "Administrator";
+      }
+    } catch (error) {
+      if (!(error instanceof GatewayError)) return next(error);
+    }
+    // Do not trust forwarded headers or persist arbitrary paths, queries or bodies.
+    const path = req.path.replace(
+      /^(\/api\/(?:tokens|connections))\/[^/]+/,
+      "$1/:id",
+    );
+    const operation =
+      /^(?:\/mcp|\/api\/(?:setup|login|logout|status|connections(?:\/:id(?:\/test)?)?|tokens(?:\/:id(?:\/(?:rotate|remove))?)?|audit(?:\/export)?|activity(?:\/export)?|installation))$/.test(
+        path,
+      )
+        ? req.method + " " + path
+        : req.method + " unknown route";
+    const context: {
+      source: string;
+      requestId: string;
+      activityId?: number;
+      errorCode?: string;
+    } = {
+      source: req.socket.remoteAddress ?? "unknown",
+      requestId: randomUUID(),
+    };
+    const id = gateway.manager.store.startActivity({
+      kind: req.path === "/mcp" ? "mcp" : "api",
+      actorId,
+      actorName,
+      operation,
+      ...context,
+    });
+    context.activityId = id;
+    const start = Date.now();
+    let completed = false;
+    res.once("finish", () => {
+      completed = true;
+      gateway.manager.store.finishActivity(
+        id,
+        res.statusCode >= 400 ? "error" : "success",
+        Date.now() - start,
+        res.statusCode,
+        context.errorCode,
+      );
+    });
+    res.once("close", () => {
+      if (!completed)
+        gateway.manager.store.finishActivity(
+          id,
+          "aborted",
+          Date.now() - start,
+          res.statusCode,
+        );
+    });
+    requestActivity.run(context, next);
+  });
   const expected = new URL(config.PUBLIC_URL);
   const attempts = new Map<string, { count: number; until: number }>();
   app.use((req, res, next) => {
@@ -113,7 +190,6 @@ export function createApp(gateway: Gateway, config: Config) {
       res: express.Response,
       _next: express.NextFunction,
     ) => {
-      if (res.headersSent) return;
       const safe =
         error instanceof ZodError
           ? { code: "INVALID_INPUT", message: "Input validation failed." }
@@ -124,6 +200,9 @@ export function createApp(gateway: Gateway, config: Config) {
           : error instanceof ZodError
             ? 400
             : 500;
+      const activity = requestActivity.getStore();
+      if (activity) activity.errorCode = safe.code;
+      if (res.headersSent) return;
       res.status(status).json({ success: false, error: safe });
     },
   );

@@ -497,3 +497,152 @@ footer {
     display: block;
   }
 }
+
+/* Shared portal and documentation refinements. */
+.skip-link {
+  position: fixed;
+  top: -80px;
+  left: 16px;
+  z-index: 20;
+  padding: 12px;
+  background: var(--surface);
+}
+.skip-link:focus {
+  top: 12px;
+}
+#workspace > nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 12px;
+  background: #0b1119f5;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+}
+.toolbar {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 20px 0;
+}
+.toolbar label {
+  flex: 1;
+  min-width: min(240px, 100%);
+}
+.toolbar p {
+  flex: 1;
+  margin: 0;
+  align-self: center;
+}
+#connectionList,
+#tokenList {
+  margin: 20px 0 32px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
+  gap: 14px;
+}
+#connectionList article,
+#tokenList article {
+  margin: 0;
+  border-left: 3px solid #477e72;
+}
+article[data-status="expired"],
+article[data-status="revoked"] {
+  border-left-color: #b79a64 !important;
+}
+.card-title {
+  display: block;
+  font-size: 18px;
+  color: #f2f7fc;
+  margin-bottom: 8px;
+}
+.card-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+article button {
+  background: #172a39;
+}
+article button:hover {
+  background: #244358;
+}
+button.danger {
+  color: #ffb6ad;
+  border-color: #77463f;
+}
+button.danger:hover {
+  background: #492b29;
+}
+#tokenForm,
+#activityForm,
+#auditForm {
+  background: #0d1722;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+}
+#message:not(:empty) {
+  position: sticky;
+  top: 12px;
+  z-index: 10;
+  border: 1px solid #28584a;
+  background: #132e29;
+  padding: 14px 18px;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px #0005;
+}
+#message.error {
+  background: #342321;
+  border-color: #77463f;
+}
+caption {
+  text-align: left;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: var(--muted);
+}
+#activityList td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  max-width: 320px;
+}
+#activityList tr:hover {
+  background: #152333;
+}
+#activityList tr[data-status="error"] td:first-child {
+  color: #ffb6ad;
+}
+#activityList tr[data-status="pending"] td:first-child {
+  color: #f5d18b;
+}
+@media (max-width: 760px) {
+  #workspace > nav {
+    position: static;
+  }
+  .overview {
+    grid-template-columns: 1fr;
+  }
+  .overview div {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .overview span {
+    margin: 0;
+    font-size: 24px;
+  }
+  #tokenForm,
+  #activityForm,
+  #auditForm {
+    padding: 16px;
+  }
+  .toolbar > button {
+    width: 100%;
+  }
+  #activity .table-scroll {
+    margin: 0 -12px;
+  }
+}

@@ -111,9 +111,13 @@
               </li>
             </ol>
             <div class="callout">
-              Rotate replaces a token and revokes the old one immediately.
-              Revoke removes access without changing the database password. A
-              lost token cannot be retrieved; issue a replacement.
+              Edit updates a token’s name, connection scope and permissions
+              without changing its secret. Leaving expiry blank keeps the
+              current expiry. Changes apply on the next call. Delete removes
+              inactive tokens while preserving their activity logs. Rotate
+              replaces a token and revokes the old one immediately. Revoke
+              removes access without changing the database password. A lost
+              token cannot be retrieved; issue a replacement.
             </div>
           </section>
           <section id="developers">
@@ -295,18 +299,32 @@ Using DBMux connection PROJECT_DEV, inspect the allowed schemas and relevant tab
             <p class="eyebrow">06 / REVIEW</p>
             <h2>Read the change trail</h2>
             <p>
-              In Change history, enter a connection ID and load records. Search
-              the loaded page by project, branch, SQL or status. Expand a record
-              to inspect SQL, parameters and context; copy details or SQL for a
-              review. Increase Offset to load older records (the default page
-              contains up to 100 records).
+              Activity logs records portal API requests, MCP requests and
+              individual tool outcomes, including denied calls. Filter by
+              caller, type, outcome and date range, then download all matching
+              records as NDJSON. A token name identifies the assigned owner, not
+              a verified person at the keyboard. The source address is the
+              direct network peer; behind a proxy it identifies that proxy.
+              Request bodies and credentials are excluded. Activity begins after
+              this feature is installed; earlier SQL audits remain in Database
+              history. Pending records can indicate interrupted requests.
+              Downloads are administrator-only and include network addresses.
             </p>
             <p>
+              In Database history, enter a connection ID and load records.
+              Search the loaded page by project, branch, SQL or status. Expand a
+              record to inspect SQL, parameters and context; copy details or SQL
+              for a review. Increase Offset to load the next records (the
+              default page contains up to 100 records).
+            </p>
+            <p>
+              Download all connection history exports every recorded outcome as
+              NDJSON. Download loaded history saves the current page as JSON.
               Schema diffs describe catalog changes, not row changes, and cannot
-              reconstruct exact SQL for external edits. Exports use successful
-              recorded MCP changes and include bind manifests. Audit SQL and
-              parameters may contain application data; share them only with
-              authorized teammates.
+              reconstruct exact SQL for external edits. The MCP
+              db_export_changes tool uses successful recorded changes and
+              includes bind manifests. Audit SQL and parameters may contain
+              application data; share them only with authorized teammates.
             </p>
             <div class="callout">
               A failed or pending migration may have applied some statements.

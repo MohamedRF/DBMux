@@ -11,6 +11,10 @@ let editing = false;
 let oneTimeToken = "";
 let installationUrl = "";
 let history = [];
+let editingToken = "";
+let messageTimer;
+let activityOffset = 0;
+let activityFilters = new URLSearchParams();
 let selectedClient = "Codex";
 const $ = (id) => document.getElementById(id);
 const fields = (form) => Object.fromEntries(new FormData(form));
@@ -40,10 +44,38 @@ async function api(path, method = "GET", body, token = session) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const value = await r.json();
+  if (
+    r.status === 401 &&
+    value.error?.message === "Administrator authentication required." &&
+    session &&
+    token === session
+  ) {
+    session = "";
+    clearToken();
+    history = [];
+    for (const id of [
+      "connectionList",
+      "tokenList",
+      "auditList",
+      "activityList",
+    ])
+      $(id).replaceChildren();
+    $("connectionForm").reset();
+    resetToken();
+    $("downloadHistory").disabled = true;
+    $("workspace").hidden = true;
+    $("authentication").hidden = false;
+    $("logout").hidden = true;
+  }
   if (!r.ok) throw new Error(value.error?.message ?? "Request failed");
   return value;
 }
 function report(e) {
+  clearTimeout(messageTimer);
+  if (!(e instanceof Error))
+    messageTimer = setTimeout(() => {
+      $("message").textContent = "";
+    }, 6000);
   $("message").textContent = e.message ?? String(e);
   $("message").classList.toggle("error", e instanceof Error);
 }
@@ -51,6 +83,7 @@ function button(label, fn) {
   const b = document.createElement("button");
   b.textContent = label;
   b.type = "button";
+  if (/^(Delete|Revoke)/.test(label)) b.classList.add("danger");
   b.onclick = async () => {
     b.disabled = true;
     try {
@@ -66,7 +99,14 @@ function button(label, fn) {
 function item(text) {
   const a = document.createElement("article");
   const p = document.createElement("div");
-  p.textContent = text;
+  const [title, ...metadata] = text.split(" · ");
+  const strong = document.createElement("strong");
+  strong.className = "card-title";
+  strong.textContent = title;
+  const detail = document.createElement("span");
+  detail.className = "card-meta";
+  detail.textContent = metadata.join(" · ");
+  p.append(strong, detail);
   a.append(p);
   return a;
 }
@@ -158,7 +198,7 @@ async function refresh() {
       return a;
     }),
   );
-  if (!connections.length)
+  if (!$("connectionList").children.length)
     $("connectionList").append(
       item("No connections yet. Add your first development database below."),
     );
@@ -169,14 +209,39 @@ async function refresh() {
   $("tokenList").replaceChildren(
     ...tokens.map((t) => {
       const a = item(
-        `${t.name} · ${t.connections.join(", ")} · ${t.revoked ? "revoked" : "expires " + new Date(t.expiresAt).toLocaleString()}`,
+        `${t.name} · ${t.connections.join(", ")} · ${t.revoked ? "revoked" : t.expiresAt <= Date.now() ? "expired " + new Date(t.expiresAt).toLocaleString() : "expires " + new Date(t.expiresAt).toLocaleString()}`,
       );
       a.append(
         button("Copy connection IDs", () =>
           copyText(t.connections.join(", "), null, report),
         ),
       );
-      if (!t.revoked)
+      a.dataset.status = t.revoked
+        ? "revoked"
+        : t.expiresAt <= Date.now()
+          ? "expired"
+          : "active";
+      const active = !t.revoked && t.expiresAt > Date.now();
+      if (active) a.append(button("Edit token", () => editToken(t)));
+      if (!active)
+        a.append(
+          button("Delete token", async () => {
+            if (
+              !confirm(
+                "Delete this inactive token? Its activity logs will be retained.",
+              )
+            )
+              return;
+            await api(
+              "/tokens/" + encodeURIComponent(t.id) + "/remove",
+              "POST",
+            );
+            if (editingToken === t.id) resetToken();
+            report("Token deleted. Activity logs retained.");
+            await refresh();
+          }),
+        );
+      if (active)
         a.append(
           button("Revoke", async () => {
             if (
@@ -186,6 +251,8 @@ async function refresh() {
             )
               return;
             await api("/tokens/" + t.id, "DELETE");
+            if (editingToken === t.id) resetToken();
+            report("Token revoked. Access removed immediately.");
             await refresh();
           }),
           button("Rotate", async () => {
@@ -196,14 +263,18 @@ async function refresh() {
             )
               return;
             const value = await api("/tokens/" + t.id + "/rotate", "POST");
+            if (editingToken === t.id) resetToken();
             revealToken(value.token);
+            report("Token rotated. Copy the replacement now.");
             await refresh();
           }),
         );
       return a;
     }),
   );
-  if (!tokens.length)
+  for (const id of ["connectionSearch", "tokenSearch", "tokenStatus"])
+    $(id).dispatchEvent(new Event("input"));
+  if (!$("tokenList").children.length)
     $("tokenList").append(
       item(
         "No developer tokens yet. Create a personal token with explicit connection access.",
@@ -258,7 +329,9 @@ $("logout").onclick = async () => {
     $("tokenList").replaceChildren();
     $("connectionForm").reset();
     $("resetConnection").click();
-    $("tokenForm").reset();
+    resetToken();
+    $("activityList").replaceChildren();
+    $("downloadHistory").disabled = true;
     $("workspace").hidden = true;
     $("authentication").hidden = false;
     $("logout").hidden = true;
@@ -267,9 +340,12 @@ $("logout").onclick = async () => {
 document.querySelectorAll("[data-page]").forEach(
   (b) =>
     (b.onclick = () => {
-      ["connections", "tokens", "audit", "installation"].forEach(
+      ["connections", "tokens", "activity", "audit", "installation"].forEach(
         (id) => ($(id).hidden = id !== b.dataset.page),
       );
+      $(b.dataset.page).querySelector("h1").tabIndex = -1;
+      $(b.dataset.page).querySelector("h1").focus({ preventScroll: true });
+      if (b.dataset.page === "activity") loadActivity().catch(report);
       if (b.dataset.page !== "tokens") {
         $("newToken").textContent = "";
         oneTimeToken = "";
@@ -342,13 +418,27 @@ $("tokenForm").onsubmit = async (e) => {
   e.preventDefault();
   try {
     const a = fields(e.target);
-    const value = await api("/tokens", "POST", {
-      name: a.name,
-      connections: csv(a.connections),
-      permissions: grant(a.access),
-      days: Number(a.days),
-    });
-    revealToken(value.token);
+    const updating = Boolean(editingToken);
+    const value = await api(
+      updating ? "/tokens/" + encodeURIComponent(editingToken) : "/tokens",
+      updating ? "PUT" : "POST",
+      {
+        name: a.name.trim(),
+        connections: [...new Set(csv(a.connections))],
+        permissions:
+          a.access === "custom"
+            ? JSON.parse(a.customPermissions)
+            : grant(a.access),
+        ...(a.days ? { days: Number(a.days) } : {}),
+      },
+    );
+    resetToken();
+    if (value.token) revealToken(value.token);
+    report(
+      updating
+        ? "Token updated. Access changes apply immediately."
+        : "Token created. Copy the secret now.",
+    );
     await refresh();
   } catch (error) {
     report(error);
@@ -406,6 +496,7 @@ $("auditForm").onsubmit = async (e) => {
         Number(a.offset),
     );
     renderHistory();
+    $("downloadHistory").disabled = !history.length;
   } catch (error) {
     report(error);
   }
@@ -495,3 +586,206 @@ for (const form of document.querySelectorAll("form")) {
     }
   };
 }
+
+function clearToken() {
+  oneTimeToken = "";
+  $("newToken").textContent = "";
+  $("tokenReveal").hidden = true;
+  $("copyToken").disabled = true;
+}
+function resetToken() {
+  editingToken = "";
+  $("tokenForm").reset();
+  $("tokenForm").elements.days.required = true;
+  $("tokenForm").elements.days.placeholder = "90";
+  $("tokenHeading").textContent = "Create a developer token";
+  $("saveToken").textContent = "Create token";
+  $("tokenCustomLabel").hidden = true;
+  $("tokenEditNote").textContent =
+    "Choose explicit connection access. Permissions also respect each connection’s policy.";
+  clearToken();
+}
+function editToken(token) {
+  resetToken();
+  editingToken = token.id;
+  const f = $("tokenForm");
+  f.elements.name.value = token.name;
+  f.elements.connections.value = token.connections.join(", ");
+  f.elements.days.value = "";
+  f.elements.days.required = false;
+  f.elements.days.placeholder = "Keep current expiry";
+  const level =
+    ["read-only", "development-write", "full-development"].find((level) =>
+      Object.keys(token.permissions).every(
+        (key) => grant(level)[key] === token.permissions[key],
+      ),
+    ) ?? "custom";
+  f.elements.access.value = level;
+  f.elements.customPermissions.value = JSON.stringify(token.permissions);
+  $("tokenCustomLabel").hidden = level !== "custom";
+  $("tokenHeading").textContent = "Edit token: " + token.name;
+  $("saveToken").textContent = "Save changes";
+  $("tokenEditNote").textContent =
+    "The secret stays the same. Leave expiry blank to keep " +
+    new Date(token.expiresAt).toLocaleString() +
+    ". Enter days to set a new expiry from today.";
+  f.scrollIntoView({ behavior: "smooth", block: "center" });
+  f.elements.name.focus({ preventScroll: true });
+}
+const custom = document.createElement("option");
+custom.value = "custom";
+custom.textContent = "Custom permissions";
+$("tokenForm").elements.access.append(custom);
+$("tokenForm").elements.access.onchange = () => {
+  $("tokenCustomLabel").hidden =
+    $("tokenForm").elements.access.value !== "custom";
+};
+$("resetToken").onclick = resetToken;
+for (const id of ["connectionSearch", "tokenSearch", "tokenStatus"])
+  $(id).oninput = () => {
+    const list = $(id === "connectionSearch" ? "connectionList" : "tokenList");
+    const search = $(
+      id === "connectionSearch" ? "connectionSearch" : "tokenSearch",
+    ).value.toLowerCase();
+    for (const card of list.children) {
+      const status = card.dataset.status;
+      card.hidden =
+        !card.firstElementChild.textContent.toLowerCase().includes(search) ||
+        (status &&
+          $("tokenStatus").value !== "all" &&
+          $("tokenStatus").value !== status);
+    }
+  };
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$("downloadHistory").onclick = () =>
+  download(
+    new Blob([JSON.stringify(history, null, 2)], { type: "application/json" }),
+    "dbmux-history.json",
+  );
+let activityLoading = false;
+async function loadActivity() {
+  if (activityLoading) return;
+  activityLoading = true;
+  $("activitySummary").textContent = "Loading activity…";
+  $("activityPrevious").disabled = true;
+  $("activityNext").disabled = true;
+  const controls = [...$("activityForm").elements, $("refreshActivity")];
+  controls.forEach((control) => (control.disabled = true));
+  try {
+    const query = new URLSearchParams(activityFilters);
+    query.set("offset", activityOffset);
+    query.set("limit", 50);
+    const data = await api("/activity?" + query);
+    $("activityList").replaceChildren(
+      ...data.rows.map((row) => {
+        const tr = document.createElement("tr");
+        tr.dataset.status = row.status;
+        for (const value of [
+          new Date(row.timestamp).toLocaleString() + " · " + row.status,
+          row.actor_name + " · " + row.actor_id,
+          row.operation + (row.error_code ? " · " + row.error_code : ""),
+          row.source + " · " + row.duration_ms + " ms",
+        ]) {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.append(td);
+        }
+        tr.title = "Request: " + row.request_id;
+        return tr;
+      }),
+    );
+    $("activitySummary").textContent = data.total
+      ? `${activityOffset + 1}–${activityOffset + data.rows.length} of ${data.total} matching records`
+      : "No activity matches these filters.";
+    $("activityPrevious").disabled = activityOffset === 0;
+    $("activityNext").disabled =
+      activityOffset + data.rows.length >= data.total;
+  } catch (error) {
+    $("activitySummary").textContent =
+      "Activity could not be loaded. Refresh to retry.";
+    throw error;
+  } finally {
+    activityLoading = false;
+    controls.forEach((control) => (control.disabled = false));
+  }
+}
+$("activityForm").onsubmit = async (event) => {
+  event.preventDefault();
+  if (activityLoading) return;
+  const query = new URLSearchParams();
+  try {
+    for (const [key, value] of Object.entries(fields(event.target)))
+      if (value)
+        query.set(
+          key,
+          ["from", "to"].includes(key) ? new Date(value).toISOString() : value,
+        );
+    activityFilters = query;
+    activityOffset = 0;
+    await loadActivity();
+  } catch (error) {
+    report(error);
+  }
+};
+$("activityPrevious").onclick = () => {
+  activityOffset = Math.max(0, activityOffset - 50);
+  loadActivity().catch(report);
+};
+$("activityNext").onclick = () => {
+  activityOffset += 50;
+  loadActivity().catch(report);
+};
+$("refreshActivity").onclick = () => {
+  activityOffset = 0;
+  loadActivity().catch(report);
+};
+$("downloadActivity").onclick = async () => {
+  const b = $("downloadActivity");
+  b.disabled = true;
+  try {
+    const response = await fetch("/api/activity/export?" + activityFilters, {
+      headers: { Authorization: "Bearer " + session },
+    });
+    if (!response.ok)
+      throw new Error("Log download failed. Check your session and filters.");
+    download(await response.blob(), "dbmux-activity.ndjson");
+    report("Downloaded all matching activity logs.");
+  } catch (error) {
+    report(error);
+  } finally {
+    b.disabled = false;
+  }
+};
+
+$("downloadAllHistory").onclick = async () => {
+  const connectionId = $("auditForm").elements.connectionId.value.trim();
+  if (!connectionId) {
+    report(new Error("Choose a connection before downloading its history."));
+    return;
+  }
+  const b = $("downloadAllHistory");
+  b.disabled = true;
+  try {
+    const response = await fetch(
+      "/api/audit/export?connectionId=" + encodeURIComponent(connectionId),
+      { headers: { Authorization: "Bearer " + session } },
+    );
+    if (!response.ok)
+      throw new Error(
+        "History download failed. Check the connection and your session.",
+      );
+    download(await response.blob(), "dbmux-history.ndjson");
+    report("Downloaded all history for " + connectionId + ".");
+  } catch (error) {
+    report(error);
+  } finally {
+    b.disabled = false;
+  }
+};

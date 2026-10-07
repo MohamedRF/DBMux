@@ -4,6 +4,7 @@ import type { Gateway } from "../services/gateway.js";
 import type { Identity } from "../security/auth.js";
 import type { CatalogKind } from "../database/adapter.js";
 import { GatewayError, safeError } from "../security/errors.js";
+import { trackTool } from "../services/activity.js";
 const connectionInput = { connectionId: z.string().min(1).max(64) };
 const identifier = z.string().regex(/^[A-Za-z_][A-Za-z0-9_$#]*$/);
 const page = {
@@ -45,8 +46,15 @@ export function registerTools(
       { description, inputSchema: z.object(shape) },
       async (args) => {
         try {
-          gateway.auth.current(identity.id);
-          return result(await fn(args as z.infer<z.ZodObject<S>>));
+          return await trackTool(
+            gateway.manager.store,
+            identity,
+            name,
+            async () => {
+              gateway.auth.current(identity.id);
+              return result(await fn(args as z.infer<z.ZodObject<S>>));
+            },
+          );
         } catch (e) {
           return {
             ...result({ success: false, error: safeError(e) }),
