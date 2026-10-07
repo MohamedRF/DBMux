@@ -8,6 +8,7 @@ import { GatewayError, safeError } from "../security/errors.js";
 import { hash } from "../security/encryption.js";
 import { Transactions } from "./transaction.service.js";
 import { Snapshots } from "./schema-diff.service.js";
+import { requestActivity } from "./activity.js";
 interface Prepared {
   owner: string;
   connectionId: string;
@@ -35,6 +36,8 @@ export class Gateway {
         403,
       );
     const config = this.manager.configFor(id);
+    const activityId = requestActivity.getStore()?.toolActivityId;
+    if (activityId) this.manager.store.attachActivityConnection(activityId, id);
     if (!config.enabled)
       throw new GatewayError(
         "MCP_DISABLED",
@@ -274,6 +277,7 @@ export class Gateway {
       id,
       tool,
       auditPayload,
+      requestActivity.getStore(),
     );
     try {
       const execute = async (
@@ -350,6 +354,7 @@ export class Gateway {
       id,
       commit ? "db_transaction_commit" : "db_transaction_rollback",
       { transactionId: txId },
+      requestActivity.getStore(),
     );
     try {
       await this.transactions.finish(txId, identity.id, commit);

@@ -52,8 +52,8 @@
       </section>
       <div id="workspace" hidden>
         <nav aria-label="Workspace">
-          <button data-page="connections" aria-current="page">
-            Connections</button
+          <button data-page="dashboard" aria-current="page">Dashboard</button>
+          <button data-page="connections">Connections</button
           ><button data-page="tokens">MCP access</button
           ><button data-page="activity">Activity logs</button
           ><button data-page="audit">Database history</button
@@ -67,7 +67,21 @@
           <div><span id="enabledCount">0</span> MCP enabled</div>
           <div><span id="tokenCount">0</span> Active tokens</div>
         </div>
-        <section id="connections">
+        <section id="dashboard">
+          <h1>Gateway dashboard</h1>
+          <p>
+            Review activity, access expiry and the last recorded connection
+            tests.
+          </p>
+          <div class="toolbar">
+            <p id="dashboardSummary" role="status">
+              Sign in to load your dashboard.
+            </p>
+            <button id="refreshDashboard">Refresh dashboard</button>
+          </div>
+          <div id="dashboardContent"></div>
+        </section>
+        <section id="connections" hidden>
           <h1>Connections</h1>
           <p>Use dedicated application accounts on development databases.</p>
           <div class="callout">
@@ -174,11 +188,11 @@
                     <option value="custom">Custom permission flags</option>
                   </select></label
                 >
+                <fieldset class="permission-fieldset">
+                  <legend>Connection permission grants</legend>
+                  <div id="connectionPermissions" class="permission-grid"></div>
+                </fieldset>
                 <label
-                  >Custom permission flags (JSON, used for Custom access)<input
-                    name="customPermissions"
-                    placeholder='{"read":true,"insert":false,"update":false,"delete":false,"create":false,"alter":false,"drop":false,"truncate":false,"executeRoutine":false}' /></label
-                ><label
                   >Additional protected schemas, comma-separated<input
                     name="protectedSchemas" /></label
                 ><label
@@ -242,18 +256,26 @@
           <div id="tokenList"></div>
           <h2 id="tokenHeading">Create a developer token</h2>
           <form id="tokenForm">
-            <label>Developer / token name<input name="name" required /></label
-            ><label
-              >Connection IDs, comma-separated<input
-                name="connections"
-                required
-                list="connectionOptions"
-                placeholder="project-dev" /></label
-            ><label
+            <label>Developer / token name<input name="name" required /></label>
+            <fieldset class="connection-picker">
+              <legend>Permitted connections</legend>
+              <label
+                >Find connections to grant<input
+                  id="tokenConnectionSearch"
+                  type="search"
+                  placeholder="Connection name, engine or ID"
+              /></label>
+              <p id="tokenConnectionSummary" role="status">
+                Select at least one connection.
+              </p>
+              <div id="tokenConnectionPicker"></div>
+            </fieldset>
+            <label
               >Permissions<select name="access">
                 <option value="read-only">Read Only</option>
                 <option value="development-write">Development Write</option>
                 <option value="full-development">Full Development</option>
+                <option value="custom">Custom permissions</option>
               </select></label
             ><label
               >Expires in days<input
@@ -261,10 +283,21 @@
                 type="number"
                 value="90"
                 min="1"
-                max="365" /></label
-            ><label hidden id="tokenCustomLabel"
-              >Custom permissions (JSON)<input name="customPermissions"
+                max="365"
             /></label>
+            <fieldset class="permission-fieldset">
+              <legend>Token permission grants</legend>
+              <div id="tokenPermissions" class="permission-grid"></div>
+            </fieldset>
+            <fieldset class="effective-preview">
+              <legend>Effective access preview</legend>
+              <p>
+                Grants intersect the selected connection’s permissions. Schema
+                and tool policies still apply. Disabled connections and routine
+                execution are unavailable.
+              </p>
+              <div id="tokenAccessPreview"></div>
+            </fieldset>
             <div class="form-actions">
               <button id="saveToken">Create token</button
               ><button id="resetToken" type="button">Cancel / new token</button>
@@ -327,6 +360,13 @@
           </p>
           <form id="activityForm">
             <label
+              >Search activity<input
+                name="q"
+                type="search"
+                maxlength="200"
+                placeholder="Caller, token ID, connection, tool or request ID"
+            /></label>
+            <label
               >Type<select name="kind">
                 <option value="">All activity</option>
                 <option value="tool">MCP tools</option>
@@ -348,6 +388,25 @@
                 name="actor"
                 placeholder="Exact developer or administrator name"
                 maxlength="100"
+            /></label>
+            <label
+              >Token / caller ID<input
+                name="actorId"
+                maxlength="100"
+                placeholder="Exact token ID or admin"
+            /></label>
+            <label
+              >Connection<input
+                name="connectionId"
+                list="connectionOptions"
+                maxlength="64"
+                placeholder="Connection ID"
+            /></label>
+            <label
+              >Tool / operation<input
+                name="operation"
+                maxlength="100"
+                placeholder="Exact tool name or API operation"
             /></label>
             <label>From<input type="datetime-local" name="from" /></label
             ><label>To<input type="datetime-local" name="to" /></label>
@@ -371,6 +430,7 @@
                   <th scope="col">Caller</th>
                   <th scope="col">Operation</th>
                   <th scope="col">Source / duration</th>
+                  <th scope="col">Request</th>
                 </tr>
               </thead>
               <tbody id="activityList"></tbody>
@@ -380,6 +440,12 @@
             <button id="activityPrevious" disabled>Previous</button
             ><button id="activityNext" disabled>Next</button>
           </div>
+          <div
+            id="requestTimeline"
+            class="timeline-panel"
+            hidden
+            aria-label="Request timeline"
+          ></div>
         </section>
         <section id="installation" hidden>
           <h1>MCP installation</h1>

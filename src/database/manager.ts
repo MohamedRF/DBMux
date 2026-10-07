@@ -78,6 +78,7 @@ export class ConnectionManager {
       );
 
     await this.evict(c.id);
+    this.store.remove("connection-health", c.id);
     this.store.put("connection", c.id, {
       id: c.id,
       name: c.name,
@@ -118,6 +119,7 @@ export class ConnectionManager {
   async remove(id: string) {
     await this.evict(id);
     this.store.remove("connection", id);
+    this.store.remove("connection-health", id);
   }
   async close() {
     await Promise.all([...this.adapters.values()].map((a) => a.close()));

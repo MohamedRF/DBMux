@@ -4,10 +4,21 @@ import type { Gateway } from "../services/gateway.js";
 import type { Config } from "../config/index.js";
 import { permissionsSchema } from "../security/permissions.js";
 import { hash } from "../security/encryption.js";
-import { GatewayError } from "../security/errors.js";
+import { GatewayError, safeError } from "../security/errors.js";
+import type { SavedConnection } from "../database/manager.js";
 import { requestActivity } from "../services/activity.js";
+import {
+  effectiveTokenAccess,
+  portalDashboard,
+  type ConnectionHealth,
+} from "../services/portal.service.js";
 export const bearer = (req: express.Request) =>
   req.headers.authorization?.match(/^Bearer (\S+)$/)?.[1] ?? "";
+function attachRequestConnection(gateway: Gateway, id: string) {
+  const activityId = requestActivity.getStore()?.activityId;
+  if (activityId)
+    gateway.manager.store.attachActivityConnection(activityId, id);
+}
 function streamNdjson(
   res: express.Response,
   next: express.NextFunction,
@@ -82,6 +93,21 @@ export function adminRouter(gateway: Gateway, config: Config) {
     }),
   );
   router.get("/connections", (_req, res) => res.json(gateway.manager.list()));
+  router.get("/dashboard", (req, res) => {
+    const { timezoneOffset } = z
+      .object({
+        timezoneOffset: z.coerce.number().int().min(-840).max(840).default(0),
+      })
+      .parse(req.query);
+    res.json(
+      portalDashboard(
+        gateway.manager,
+        gateway.auth,
+        timezoneOffset,
+        (requestActivity.getStore()?.activityId ?? Number.MAX_SAFE_INTEGER) - 1,
+      ),
+    );
+  });
   router.post("/connections", async (req, res) => {
     if (gateway.manager.store.get("connection", String(req.body.id)))
       throw new GatewayError(
@@ -89,11 +115,14 @@ export function adminRouter(gateway: Gateway, config: Config) {
         "Connection already exists; use update.",
         409,
       );
-    res.status(201).json(await gateway.manager.save(req.body));
+    const saved = await gateway.manager.save(req.body);
+    attachRequestConnection(gateway, saved.id);
+    res.status(201).json(saved);
   });
   router.put("/connections/:id", async (req, res) => {
     const id = String(req.params.id);
     const existing = gateway.manager.configFor(id);
+    attachRequestConnection(gateway, id);
     await gateway.transactions.closeConnection(id);
     res.json(
       await gateway.manager.save({
@@ -104,21 +133,83 @@ export function adminRouter(gateway: Gateway, config: Config) {
       }),
     );
   });
-  router.post("/connections/:id/test", async (req, res) =>
-    res.json(
-      await gateway.manager.adapter(String(req.params.id)).testConnection(),
-    ),
-  );
+  router.post("/connections/:id/test", async (req, res) => {
+    const id = String(req.params.id);
+    gateway.manager.configFor(id);
+    attachRequestConnection(gateway, id);
+    const revision = gateway.manager.store.get<SavedConnection>(
+      "connection",
+      id,
+    )?.sealed;
+    const checkedAt = new Date().toISOString();
+    try {
+      const result = await gateway.manager.adapter(id).testConnection();
+      const health: ConnectionHealth = {
+        checkedAt,
+        connected: result.connected === true,
+      };
+      if (
+        typeof result.latencyMs === "number" &&
+        Number.isFinite(result.latencyMs)
+      )
+        health.latencyMs = result.latencyMs;
+      // Ignore a test result if this configuration was changed while it ran.
+      const previous = gateway.manager.store.get<ConnectionHealth>(
+        "connection-health",
+        id,
+      );
+      if (
+        gateway.manager.store.get<SavedConnection>("connection", id)?.sealed ===
+          revision &&
+        (!previous || previous.checkedAt <= checkedAt)
+      )
+        gateway.manager.store.put("connection-health", id, health);
+      res.json(result);
+    } catch (error) {
+      const previous = gateway.manager.store.get<ConnectionHealth>(
+        "connection-health",
+        id,
+      );
+      if (
+        gateway.manager.store.get<SavedConnection>("connection", id)?.sealed ===
+          revision &&
+        (!previous || previous.checkedAt <= checkedAt)
+      )
+        gateway.manager.store.put("connection-health", id, {
+          checkedAt,
+          connected: false,
+          errorCode: safeError(error).code,
+        } satisfies ConnectionHealth);
+      throw error;
+    }
+  });
   router.delete("/connections/:id", async (req, res) => {
     const id = String(req.params.id);
+    if (gateway.manager.store.get("connection", id))
+      attachRequestConnection(gateway, id);
     await gateway.transactions.closeConnection(id);
     await gateway.manager.remove(id);
     res.json({ deleted: true });
   });
-  router.get("/tokens", (_req, res) => res.json(gateway.auth.list()));
+  router.get("/tokens", (_req, res) => {
+    const connections = gateway.manager.list();
+    res.json(
+      gateway.auth.list().map((token) => ({
+        ...token,
+        access: effectiveTokenAccess(token, connections),
+      })),
+    );
+  });
   const tokenSchema = z.object({
     name: z.string().trim().min(1).max(100),
-    connections: z.array(z.string()).min(1).max(100),
+    connections: z
+      .array(z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/))
+      .min(1)
+      .max(100)
+      .refine(
+        (ids) => new Set(ids).size === ids.length,
+        "Connection access must be unique",
+      ),
     permissions: permissionsSchema,
     days: z.number().int().min(1).max(365).default(90),
   });
@@ -164,6 +255,7 @@ export function adminRouter(gateway: Gateway, config: Config) {
       })
       .parse(req.query);
     gateway.manager.configFor(query.connectionId);
+    attachRequestConnection(gateway, query.connectionId);
     res.json(
       gateway.manager.store.history(
         query.connectionId,
@@ -177,6 +269,7 @@ export function adminRouter(gateway: Gateway, config: Config) {
       .object({ connectionId: z.string().min(1).max(64) })
       .parse(req.query);
     gateway.manager.configFor(connectionId);
+    attachRequestConnection(gateway, connectionId);
     const snapshot = Number(
       gateway.manager.store.db
         .prepare("SELECT MAX(id) AS id FROM audit_log WHERE connection_id=?")
@@ -194,11 +287,45 @@ export function adminRouter(gateway: Gateway, config: Config) {
       return rows;
     });
   });
+  router.get("/audit/:id", (req, res) => {
+    const id = z.coerce.number().int().positive().safe().parse(req.params.id);
+    const audit = gateway.manager.store.auditDetail(id);
+    if (!audit)
+      throw new GatewayError("NOT_FOUND", "Audit record unavailable.", 404);
+    attachRequestConnection(gateway, String(audit.connection_id));
+    res.json(audit);
+  });
+  router.get("/activity/requests/:requestId", (req, res) => {
+    const requestId = z.uuid().parse(req.params.requestId);
+    const query = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+        offset: z.coerce.number().int().min(0).max(10000000).default(0),
+        auditOffset: z.coerce.number().int().min(0).max(10000000).default(0),
+      })
+      .parse(req.query);
+    const timeline = gateway.manager.store.requestTimeline(
+      requestId,
+      query.limit,
+      query.offset,
+      query.auditOffset,
+    );
+    if (!timeline.total)
+      throw new GatewayError("NOT_FOUND", "Request timeline unavailable.", 404);
+    res.json(timeline);
+  });
   const activityQuery = z
     .object({
       kind: z.enum(["api", "mcp", "tool"]).optional(),
       status: z.enum(["pending", "success", "error", "aborted"]).optional(),
       actor: z.string().max(100).optional(),
+      actorId: z.string().min(1).max(100).optional(),
+      connectionId: z
+        .string()
+        .regex(/^[a-zA-Z0-9_-]{1,64}$/)
+        .optional(),
+      operation: z.string().min(1).max(100).optional(),
+      q: z.string().trim().max(200).optional(),
       from: z.iso
         .datetime()
         .transform((value) => new Date(value).toISOString())

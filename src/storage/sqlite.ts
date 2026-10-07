@@ -3,6 +3,23 @@ import { mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import type { Vault } from "../security/encryption.js";
 
+export interface ActivityQuery {
+  kind?: string;
+  status?: string;
+  actor?: string;
+  actorId?: string;
+  connectionId?: string;
+  operation?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+  limit: number;
+  offset: number;
+  beforeId?: number;
+  snapshotId?: number;
+  count?: boolean;
+}
+
 export class Store {
   readonly db: DatabaseSync;
   private closed = false;
@@ -21,6 +38,30 @@ export class Store {
       CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT NOT NULL,owner TEXT NOT NULL,connection_id TEXT NOT NULL,tool TEXT NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS mcp_migrations(connection_id TEXT NOT NULL,name TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(connection_id,name));`);
+    // Add nullable correlation fields without rewriting or discarding old audits.
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const [table, column, definition] of [
+        ["activity_log", "connection_id", "TEXT"],
+        ["audit_log", "request_id", "TEXT"],
+        ["audit_log", "activity_id", "INTEGER"],
+      ] as const) {
+        const columns = this.db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!columns.some((row) => row.name === column))
+          this.db.exec(
+            `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
+          );
+      }
+      this.db
+        .exec(`CREATE INDEX IF NOT EXISTS activity_request ON activity_log(request_id,id);
+        CREATE INDEX IF NOT EXISTS activity_actor ON activity_log(actor_id,id);
+        CREATE INDEX IF NOT EXISTS activity_connection ON activity_log(connection_id,id);
+        CREATE INDEX IF NOT EXISTS activity_operation ON activity_log(operation,id);
+        CREATE INDEX IF NOT EXISTS audit_request ON audit_log(request_id,id); COMMIT`);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
   get<T>(kind: string, id: string): T | undefined {
     const row = this.db
@@ -33,6 +74,15 @@ export class Store {
       .prepare("SELECT payload FROM records WHERE kind=? ORDER BY id")
       .all(kind)
       .map((row) => JSON.parse(String(row.payload)) as T);
+  }
+  listEntries<T>(kind: string) {
+    return this.db
+      .prepare("SELECT id,payload FROM records WHERE kind=? ORDER BY id")
+      .all(kind)
+      .map((row) => ({
+        id: String(row.id),
+        value: JSON.parse(String(row.payload)) as T,
+      }));
   }
   put(kind: string, id: string, value: unknown) {
     this.db
@@ -55,11 +105,12 @@ export class Store {
     connectionId: string,
     tool: string,
     payload: unknown,
+    correlation?: { requestId: string; toolActivityId?: number },
   ): number {
     return Number(
       this.db
         .prepare(
-          "INSERT INTO audit_log(timestamp,owner,connection_id,tool,status,payload) VALUES(?,?,?,?,?,?)",
+          "INSERT INTO audit_log(timestamp,owner,connection_id,tool,status,payload,request_id,activity_id) VALUES(?,?,?,?,?,?,?,?)",
         )
         .run(
           new Date().toISOString(),
@@ -68,6 +119,8 @@ export class Store {
           tool,
           "pending",
           this.vault.seal(payload),
+          correlation?.requestId ?? null,
+          correlation?.toolActivityId ?? null,
         ).lastInsertRowid,
     );
   }
@@ -127,6 +180,13 @@ export class Store {
       .prepare("UPDATE activity_log SET actor_id=?,actor_name=? WHERE id=?")
       .run(actorId, actorName, id);
   }
+  attachActivityConnection(id: number, connectionId: string) {
+    this.db
+      .prepare(
+        "UPDATE activity_log SET connection_id=? WHERE id=? AND connection_id IS NULL",
+      )
+      .run(connectionId, id);
+  }
   finishActivity(
     id: number,
     status: string,
@@ -142,24 +202,16 @@ export class Store {
       )
       .run(status, duration, httpStatus ?? null, errorCode ?? null, id);
   }
-  activity(query: {
-    kind?: string;
-    status?: string;
-    actor?: string;
-    from?: string;
-    to?: string;
-    limit: number;
-    offset: number;
-    beforeId?: number;
-    snapshotId?: number;
-    count?: boolean;
-  }) {
+  activity(query: ActivityQuery) {
     const predicates: string[] = [];
     const values: string[] = [];
     for (const [column, value, operator] of [
       ["kind", query.kind, "="],
       ["status", query.status, "="],
       ["actor_name", query.actor, "="],
+      ["actor_id", query.actorId, "="],
+      ["connection_id", query.connectionId, "="],
+      ["operation", query.operation, "="],
       ["timestamp", query.from, ">="],
       ["timestamp", query.to, "<="],
     ]) {
@@ -167,6 +219,14 @@ export class Store {
         predicates.push(`${column} ${operator} ?`);
         values.push(value);
       }
+    }
+    if (query.q) {
+      predicates.push(
+        "(actor_name LIKE ? ESCAPE '\\' OR actor_id LIKE ? ESCAPE '\\' OR operation LIKE ? ESCAPE '\\' OR connection_id LIKE ? ESCAPE '\\' OR request_id LIKE ? ESCAPE '\\')",
+      );
+      const pattern =
+        "%" + query.q.replace(/[\\%_]/g, (value) => "\\" + value) + "%";
+      values.push(pattern, pattern, pattern, pattern, pattern);
     }
     if (query.beforeId !== undefined) {
       predicates.push("id < ?");
@@ -187,12 +247,105 @@ export class Store {
           );
     const rows = this.db
       .prepare(
-        "SELECT id,timestamp,kind,actor_id,actor_name,operation,source,request_id,status,duration_ms,http_status,error_code FROM activity_log" +
+        "SELECT id,timestamp,kind,actor_id,actor_name,operation,source,request_id,status,duration_ms,http_status,error_code,connection_id FROM activity_log" +
           where +
           " ORDER BY id DESC LIMIT ? OFFSET ?",
       )
       .all(...values, query.limit, query.offset);
     return { rows, total, limit: query.limit, offset: query.offset };
+  }
+  requestTimeline(
+    requestId: string,
+    limit: number,
+    offset: number,
+    auditOffset: number,
+  ) {
+    const total = Number(
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS total FROM activity_log WHERE request_id=?",
+        )
+        .get(requestId)?.total,
+    );
+    const auditTotal = Number(
+      this.db
+        .prepare("SELECT COUNT(*) AS total FROM audit_log WHERE request_id=?")
+        .get(requestId)?.total,
+    );
+    const rows = this.db
+      .prepare(
+        "SELECT id,timestamp,kind,actor_id,actor_name,operation,source,request_id,status,duration_ms,http_status,error_code,connection_id FROM activity_log WHERE request_id=? ORDER BY id LIMIT ? OFFSET ?",
+      )
+      .all(requestId, limit, offset);
+    // The timeline lists audit metadata; SQL and binds require opening the audit.
+    const audits = this.db
+      .prepare(
+        "SELECT id,timestamp,owner,connection_id,tool,status,request_id,activity_id FROM audit_log WHERE request_id=? ORDER BY id LIMIT ? OFFSET ?",
+      )
+      .all(requestId, limit, auditOffset);
+    return {
+      requestId,
+      rows,
+      audits,
+      total,
+      auditTotal,
+      limit,
+      offset,
+      auditOffset,
+    };
+  }
+  auditDetail(id: number) {
+    const row = this.db
+      .prepare(
+        "SELECT id,timestamp,owner,connection_id,tool,status,payload,request_id,activity_id FROM audit_log WHERE id=?",
+      )
+      .get(id);
+    if (!row) return undefined;
+    return {
+      id: Number(row.id),
+      timestamp: String(row.timestamp),
+      owner: String(row.owner),
+      connection_id: String(row.connection_id),
+      tool: String(row.tool),
+      status: String(row.status),
+      request_id: row.request_id === null ? null : String(row.request_id),
+      activity_id: row.activity_id === null ? null : Number(row.activity_id),
+      payload: this.vault.open<Record<string, unknown>>(String(row.payload)),
+    };
+  }
+  dashboardActivity(
+    from: string,
+    weekFrom: string,
+    timezoneOffset: number,
+    slowMs: number,
+    snapshotId: number,
+  ) {
+    const metrics = this.db
+      .prepare(
+        `SELECT
+      COALESCE(SUM(CASE WHEN kind IN ('api','mcp') THEN 1 ELSE 0 END),0) AS requests,
+      COALESCE(SUM(CASE WHEN kind IN ('api','mcp') AND status='error' THEN 1 ELSE 0 END),0) AS failedRequests,
+      COALESCE(SUM(CASE WHEN kind='tool' THEN 1 ELSE 0 END),0) AS toolCalls,
+      COALESCE(SUM(CASE WHEN kind='tool' AND status='error' THEN 1 ELSE 0 END),0) AS failedTools,
+      COALESCE(SUM(CASE WHEN kind='tool' AND status IN ('success','error') AND duration_ms>=? THEN 1 ELSE 0 END),0) AS slowTools
+      FROM activity_log WHERE timestamp>=? AND id<=?`,
+      )
+      .get(slowMs, from, snapshotId);
+    const daily = this.db
+      .prepare(
+        `SELECT strftime('%Y-%m-%d',timestamp,?) AS date,
+      SUM(CASE WHEN kind IN ('api','mcp') THEN 1 ELSE 0 END) AS requests,
+      SUM(CASE WHEN kind='tool' THEN 1 ELSE 0 END) AS tools,
+      SUM(CASE WHEN kind='tool' AND status='error' THEN 1 ELSE 0 END) AS failedTools
+      FROM activity_log WHERE timestamp>=? AND id<=? GROUP BY date ORDER BY date`,
+      )
+      .all(`${timezoneOffset} minutes`, weekFrom, snapshotId);
+    const slow = this.db
+      .prepare(
+        "SELECT id,timestamp,actor_name,actor_id,connection_id,operation,duration_ms,status,request_id FROM activity_log WHERE kind='tool' AND status IN ('success','error') AND duration_ms>=? AND timestamp>=? AND id<=? ORDER BY duration_ms DESC,id DESC LIMIT 10",
+      )
+      .all(slowMs, from, snapshotId);
+    return { metrics, daily, slow };
   }
   close() {
     this.db

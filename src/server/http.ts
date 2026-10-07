@@ -70,12 +70,15 @@ export function createApp(gateway: Gateway, config: Config) {
       if (!(error instanceof GatewayError)) return next(error);
     }
     // Do not trust forwarded headers or persist arbitrary paths, queries or bodies.
-    const path = req.path.replace(
-      /^(\/api\/(?:tokens|connections))\/[^/]+/,
-      "$1/:id",
-    );
+    const path = req.path
+      .replace(/^(\/api\/(?:tokens|connections))\/[^/]+/, "$1/:id")
+      .replace(
+        /^\/api\/activity\/requests\/[^/]+$/,
+        "/api/activity/requests/:requestId",
+      )
+      .replace(/^\/api\/audit\/\d+$/, "/api/audit/:id");
     const operation =
-      /^(?:\/mcp|\/api\/(?:setup|login|logout|status|connections(?:\/:id(?:\/test)?)?|tokens(?:\/:id(?:\/(?:rotate|remove))?)?|audit(?:\/export)?|activity(?:\/export)?|installation))$/.test(
+      /^(?:\/mcp|\/api\/(?:setup|login|logout|status|dashboard|connections(?:\/:id(?:\/test)?)?|tokens(?:\/:id(?:\/(?:rotate|remove))?)?|audit(?:\/(?:export|:id))?|activity(?:\/(?:export|requests\/:requestId))?|installation))$/.test(
         path,
       )
         ? req.method + " " + path

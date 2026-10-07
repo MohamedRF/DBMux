@@ -46,15 +46,16 @@ export function registerTools(
       { description, inputSchema: z.object(shape) },
       async (args) => {
         try {
-          return await trackTool(
+          const value = await trackTool(
             gateway.manager.store,
             identity,
             name,
             async () => {
               gateway.auth.current(identity.id);
-              return result(await fn(args as z.infer<z.ZodObject<S>>));
+              return await fn(args as z.infer<z.ZodObject<S>>);
             },
           );
+          return result(value);
         } catch (e) {
           return {
             ...result({ success: false, error: safeError(e) }),

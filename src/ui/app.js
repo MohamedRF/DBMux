@@ -5,6 +5,14 @@ import {
   teamHandoff,
 } from "./installation.js";
 import { copyText } from "./clipboard.js";
+import {
+  presetPermissions as grant,
+  permissionEditor,
+  effectivePermissions,
+  accessDescription,
+} from "./access-controls.js";
+import { renderDashboard } from "./dashboard.js";
+import { createTimeline, hasRequestTimeline } from "./timeline.js";
 let session = "";
 let setup = false;
 let editing = false;
@@ -16,6 +24,10 @@ let messageTimer;
 let activityOffset = 0;
 let activityFilters = new URLSearchParams();
 let selectedClient = "Codex";
+let cachedConnections = [];
+let cachedTokens = [];
+let selectedConnections = new Set();
+let dashboardGeneration = 0;
 const $ = (id) => document.getElementById(id);
 const fields = (form) => Object.fromEntries(new FormData(form));
 const csv = (s) =>
@@ -23,18 +35,8 @@ const csv = (s) =>
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
-const grant = (level) => ({
-  read: true,
-  insert: level !== "read-only",
-  update: level !== "read-only",
-  delete: level !== "read-only",
-  create: level !== "read-only",
-  alter: level !== "read-only",
-  drop: level === "full-development",
-  truncate: level === "full-development",
-  executeRoutine: false,
-});
 async function api(path, method = "GET", body, token = session) {
+  const adminRequest = Boolean(session && token === session);
   const r = await fetch("/api" + path, {
     method,
     headers: {
@@ -44,6 +46,8 @@ async function api(path, method = "GET", body, token = session) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const value = await r.json();
+  if (adminRequest && token !== session)
+    throw new Error("Session changed. Sign in again.");
   if (
     r.status === 401 &&
     value.error?.message === "Administrator authentication required." &&
@@ -51,18 +55,7 @@ async function api(path, method = "GET", body, token = session) {
     token === session
   ) {
     session = "";
-    clearToken();
-    history = [];
-    for (const id of [
-      "connectionList",
-      "tokenList",
-      "auditList",
-      "activityList",
-    ])
-      $(id).replaceChildren();
-    $("connectionForm").reset();
-    resetToken();
-    $("downloadHistory").disabled = true;
+    clearPrivateViews();
     $("workspace").hidden = true;
     $("authentication").hidden = false;
     $("logout").hidden = true;
@@ -112,6 +105,8 @@ function item(text) {
 }
 async function refresh() {
   const connections = await api("/connections");
+  cachedConnections = connections;
+  renderConnectionPicker();
   $("connectionCount").textContent = connections.length;
   $("enabledCount").textContent = connections.filter((c) => c.enabled).length;
   $("connectionOptions").replaceChildren(
@@ -170,7 +165,7 @@ async function refresh() {
                   (key) => grant(level)[key] === c.permissions[key],
                 ),
             ) ?? "custom";
-          f.elements.customPermissions.value = JSON.stringify(c.permissions);
+          connectionPermissions.set(c.permissions);
           updateEngineFields();
           f.elements.protectedSchemas.value =
             c.policy.protectedSchemas.join(",");
@@ -203,6 +198,7 @@ async function refresh() {
       item("No connections yet. Add your first development database below."),
     );
   const tokens = await api("/tokens");
+  cachedTokens = tokens;
   $("tokenCount").textContent = tokens.filter(
     (t) => !t.revoked && t.expiresAt > Date.now(),
   ).length;
@@ -211,6 +207,13 @@ async function refresh() {
       const a = item(
         `${t.name} · ${t.connections.join(", ")} · ${t.revoked ? "revoked" : t.expiresAt <= Date.now() ? "expired " + new Date(t.expiresAt).toLocaleString() : "expires " + new Date(t.expiresAt).toLocaleString()}`,
       );
+      const access = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "Effective access by connection";
+      const content = document.createElement("div");
+      renderAccess(content, t.access ?? []);
+      access.append(summary, content);
+      a.append(access);
       a.append(
         button("Copy connection IDs", () =>
           copyText(t.connections.join(", "), null, report),
@@ -308,6 +311,7 @@ $("login").onsubmit = async (e) => {
     installationUrl = (await api("/installation")).url;
     $("endpoint").textContent = installationUrl;
     showClient("Codex");
+    openPage("dashboard");
   } catch (error) {
     report(error);
   }
@@ -319,19 +323,7 @@ $("logout").onclick = async () => {
     report(error);
   } finally {
     session = "";
-    oneTimeToken = "";
-    $("newToken").textContent = "";
-    $("tokenReveal").hidden = true;
-    $("copyToken").disabled = true;
-    history = [];
-    $("auditList").replaceChildren();
-    $("connectionList").replaceChildren();
-    $("tokenList").replaceChildren();
-    $("connectionForm").reset();
-    $("resetConnection").click();
-    resetToken();
-    $("activityList").replaceChildren();
-    $("downloadHistory").disabled = true;
+    clearPrivateViews();
     $("workspace").hidden = true;
     $("authentication").hidden = false;
     $("logout").hidden = true;
@@ -340,11 +332,18 @@ $("logout").onclick = async () => {
 document.querySelectorAll("[data-page]").forEach(
   (b) =>
     (b.onclick = () => {
-      ["connections", "tokens", "activity", "audit", "installation"].forEach(
-        (id) => ($(id).hidden = id !== b.dataset.page),
-      );
+      [
+        "dashboard",
+        "connections",
+        "tokens",
+        "activity",
+        "audit",
+        "installation",
+      ].forEach((id) => ($(id).hidden = id !== b.dataset.page));
       $(b.dataset.page).querySelector("h1").tabIndex = -1;
       $(b.dataset.page).querySelector("h1").focus({ preventScroll: true });
+      if (b.dataset.page !== "activity") timeline.clear();
+      if (b.dataset.page === "dashboard") loadDashboard().catch(report);
       if (b.dataset.page === "activity") loadActivity().catch(report);
       if (b.dataset.page !== "tokens") {
         $("newToken").textContent = "";
@@ -378,10 +377,7 @@ $("connectionForm").onsubmit = async (e) => {
       poolMin: Number(a.poolMin),
       poolMax: Number(a.poolMax),
       enabled: f.elements.enabled.checked,
-      permissions:
-        a.access === "custom"
-          ? JSON.parse(a.customPermissions)
-          : grant(a.access),
+      permissions: connectionPermissions.values(),
       policy: {
         allowedSchemas: csv(a.schemas),
         protectedSchemas: csv(a.protectedSchemas),
@@ -412,6 +408,7 @@ $("resetConnection").onclick = () => {
   $("connectionForm").reset();
   $("connectionForm").elements.id.readOnly = false;
   $("connectionHeading").textContent = "Add a connection";
+  connectionPermissions.set(grant("read-only"));
   updateEngineFields();
 };
 $("tokenForm").onsubmit = async (e) => {
@@ -419,16 +416,15 @@ $("tokenForm").onsubmit = async (e) => {
   try {
     const a = fields(e.target);
     const updating = Boolean(editingToken);
+    if (!selectedConnections.size)
+      throw new Error("Select at least one permitted connection.");
     const value = await api(
       updating ? "/tokens/" + encodeURIComponent(editingToken) : "/tokens",
       updating ? "PUT" : "POST",
       {
         name: a.name.trim(),
-        connections: [...new Set(csv(a.connections))],
-        permissions:
-          a.access === "custom"
-            ? JSON.parse(a.customPermissions)
-            : grant(a.access),
+        connections: [...selectedConnections],
+        permissions: tokenPermissions.values(),
         ...(a.days ? { days: Number(a.days) } : {}),
       },
     );
@@ -551,10 +547,8 @@ function updateEngineFields() {
   for (const name of ["connectString", "sid"])
     f.elements[name].closest("label").hidden = !oracle;
   f.elements.ssl.closest("label").hidden = oracle;
-  f.elements.customPermissions.closest("label").hidden =
-    f.elements.access.value !== "custom";
 }
-$("connectionForm").elements.access.onchange = updateEngineFields;
+
 $("connectionForm").elements.engine.onchange = () => {
   $("connectionForm").elements.port.value =
     $("connectionForm").elements.engine.value === "oracle" ? 1521 : 5432;
@@ -600,7 +594,9 @@ function resetToken() {
   $("tokenForm").elements.days.placeholder = "90";
   $("tokenHeading").textContent = "Create a developer token";
   $("saveToken").textContent = "Create token";
-  $("tokenCustomLabel").hidden = true;
+  selectedConnections = new Set();
+  tokenPermissions.set(grant("read-only"));
+  renderConnectionPicker();
   $("tokenEditNote").textContent =
     "Choose explicit connection access. Permissions also respect each connection’s policy.";
   clearToken();
@@ -610,19 +606,12 @@ function editToken(token) {
   editingToken = token.id;
   const f = $("tokenForm");
   f.elements.name.value = token.name;
-  f.elements.connections.value = token.connections.join(", ");
+  selectedConnections = new Set(token.connections);
+  renderConnectionPicker();
   f.elements.days.value = "";
   f.elements.days.required = false;
   f.elements.days.placeholder = "Keep current expiry";
-  const level =
-    ["read-only", "development-write", "full-development"].find((level) =>
-      Object.keys(token.permissions).every(
-        (key) => grant(level)[key] === token.permissions[key],
-      ),
-    ) ?? "custom";
-  f.elements.access.value = level;
-  f.elements.customPermissions.value = JSON.stringify(token.permissions);
-  $("tokenCustomLabel").hidden = level !== "custom";
+  tokenPermissions.set(token.permissions);
   $("tokenHeading").textContent = "Edit token: " + token.name;
   $("saveToken").textContent = "Save changes";
   $("tokenEditNote").textContent =
@@ -632,14 +621,6 @@ function editToken(token) {
   f.scrollIntoView({ behavior: "smooth", block: "center" });
   f.elements.name.focus({ preventScroll: true });
 }
-const custom = document.createElement("option");
-custom.value = "custom";
-custom.textContent = "Custom permissions";
-$("tokenForm").elements.access.append(custom);
-$("tokenForm").elements.access.onchange = () => {
-  $("tokenCustomLabel").hidden =
-    $("tokenForm").elements.access.value !== "custom";
-};
 $("resetToken").onclick = resetToken;
 for (const id of ["connectionSearch", "tokenSearch", "tokenStatus"])
   $(id).oninput = () => {
@@ -690,13 +671,22 @@ async function loadActivity() {
         for (const value of [
           new Date(row.timestamp).toLocaleString() + " · " + row.status,
           row.actor_name + " · " + row.actor_id,
-          row.operation + (row.error_code ? " · " + row.error_code : ""),
+          row.operation +
+            (row.connection_id ? " · " + row.connection_id : "") +
+            (row.error_code ? " · " + row.error_code : ""),
           row.source + " · " + row.duration_ms + " ms",
         ]) {
           const td = document.createElement("td");
           td.textContent = value;
           tr.append(td);
         }
+        const action = document.createElement("td");
+        if (hasRequestTimeline(row.request_id))
+          action.append(
+            button("View timeline", () => openRequestTimeline(row.request_id)),
+          );
+        else action.textContent = "Older local call; no linked timeline";
+        tr.append(action);
         tr.title = "Request: " + row.request_id;
         return tr;
       }),
@@ -789,3 +779,200 @@ $("downloadAllHistory").onclick = async () => {
     b.disabled = false;
   }
 };
+
+const connectionPermissions = permissionEditor(
+  $("connectionForm"),
+  $("connectionPermissions"),
+);
+const tokenPermissions = permissionEditor(
+  $("tokenForm"),
+  $("tokenPermissions"),
+  renderTokenPreview,
+);
+const timeline = createTimeline({
+  root: $("requestTimeline"),
+  api,
+  button,
+  report,
+});
+function openPage(page) {
+  document.querySelector(`[data-page="${page}"]`).click();
+}
+async function openRequestTimeline(requestId) {
+  openPage("activity");
+  await timeline.open(requestId);
+}
+function renderAccess(root, access) {
+  root.replaceChildren();
+  if (!access.length) {
+    const p = document.createElement("p");
+    p.textContent = "Select connections to preview effective access.";
+    root.append(p);
+  }
+  for (const entry of access) {
+    const row = document.createElement("div");
+    row.className = "access-row";
+    const title = document.createElement("strong");
+    title.textContent = entry.name + " · " + entry.connectionId;
+    const grants = document.createElement("p");
+    grants.textContent = accessDescription(entry);
+    const scope = document.createElement("small");
+    scope.textContent =
+      "Schemas: " +
+      (entry.allowedSchemas.join(", ") || "none") +
+      (entry.disabledTools?.length
+        ? " · Disabled tools: " + entry.disabledTools.join(", ")
+        : "") +
+      (entry.requireWhereForUpdate ? " · UPDATE requires WHERE" : "") +
+      (entry.requireWhereForDelete ? " · DELETE requires WHERE" : "");
+    row.append(title, grants, scope);
+    root.append(row);
+  }
+}
+function renderTokenPreview() {
+  const grants = tokenPermissions.values();
+  renderAccess(
+    $("tokenAccessPreview"),
+    [...selectedConnections].map((id) => {
+      const connection = cachedConnections.find(
+        (connection) => connection.id === id,
+      );
+      return {
+        connectionId: id,
+        name: connection?.name ?? id,
+        unavailable: !connection
+          ? "Connection removed"
+          : !connection.enabled
+            ? "MCP disabled"
+            : null,
+        permissions: effectivePermissions(grants, connection),
+        allowedSchemas: connection?.policy.allowedSchemas ?? [],
+        disabledTools: connection?.policy.disabledTools ?? [],
+        requireWhereForUpdate: connection?.policy.requireWhereForUpdate,
+        requireWhereForDelete: connection?.policy.requireWhereForDelete,
+      };
+    }),
+  );
+}
+function renderConnectionPicker() {
+  const search = $("tokenConnectionSearch").value.toLowerCase();
+  const options = [
+    ...cachedConnections,
+    ...[...selectedConnections]
+      .filter(
+        (id) => !cachedConnections.some((connection) => connection.id === id),
+      )
+      .map((id) => ({
+        id,
+        name: "Removed connection",
+        engine: "unavailable",
+        enabled: false,
+      })),
+  ];
+  $("tokenConnectionPicker").replaceChildren(
+    ...options.map((connection) => {
+      const label = document.createElement("label");
+      label.className = "connection-option";
+      label.hidden = !`${connection.name} ${connection.id} ${connection.engine}`
+        .toLowerCase()
+        .includes(search);
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = connection.id;
+      checkbox.checked = selectedConnections.has(connection.id);
+      checkbox.onchange = () => {
+        if (checkbox.checked) selectedConnections.add(connection.id);
+        else selectedConnections.delete(connection.id);
+        renderConnectionPicker();
+        [...$("tokenConnectionPicker").querySelectorAll("input")]
+          .find((input) => input.value === connection.id)
+          ?.focus({ preventScroll: true });
+      };
+      const text = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = connection.name;
+      const detail = document.createElement("small");
+      detail.textContent = `${connection.id} · ${connection.engine} · ${connection.enabled ? "MCP enabled" : "MCP unavailable until enabled"}`;
+      text.append(title, detail);
+      label.append(checkbox, text);
+      return label;
+    }),
+  );
+  $("tokenConnectionSummary").textContent = options.length
+    ? `${selectedConnections.size} selected · ${options.filter((connection) => `${connection.name} ${connection.id} ${connection.engine}`.toLowerCase().includes(search)).length} shown. Connection filters do not change selected access.`
+    : "No connections yet. Add a connection before creating a token.";
+  renderTokenPreview();
+}
+$("tokenConnectionSearch").oninput = renderConnectionPicker;
+async function loadDashboard() {
+  const current = ++dashboardGeneration;
+  $("dashboardSummary").textContent = "Loading dashboard…";
+  $("refreshDashboard").disabled = true;
+  try {
+    const data = await api(
+      "/dashboard?timezoneOffset=" + -new Date().getTimezoneOffset(),
+    );
+    if (current !== dashboardGeneration) return;
+    renderDashboard(data, {
+      root: $("dashboardContent"),
+      button,
+      openPage,
+      openTimeline: openRequestTimeline,
+      testConnection: async (id) => {
+        try {
+          const result = await api(
+            "/connections/" + encodeURIComponent(id) + "/test",
+            "POST",
+          );
+          report(
+            result.connected
+              ? "Connection test passed."
+              : "Connection test did not confirm connectivity.",
+          );
+        } finally {
+          await loadDashboard();
+        }
+      },
+      editToken: (id) => {
+        const token = cachedTokens.find((token) => token.id === id);
+        if (!token)
+          throw new Error("Token list changed. Refresh the workspace.");
+        openPage("tokens");
+        editToken(token);
+      },
+    });
+    $("dashboardSummary").textContent =
+      "Updated " +
+      new Date(data.generatedAt).toLocaleString() +
+      ". Today uses your browser’s local timezone.";
+  } catch (error) {
+    if (current === dashboardGeneration)
+      $("dashboardSummary").textContent =
+        "Dashboard could not be loaded. Refresh to retry.";
+    throw error;
+  } finally {
+    if (current === dashboardGeneration) $("refreshDashboard").disabled = false;
+  }
+}
+$("refreshDashboard").onclick = () => loadDashboard().catch(report);
+function clearPrivateViews() {
+  dashboardGeneration++;
+  timeline.clear();
+  clearToken();
+  history = [];
+  cachedConnections = [];
+  cachedTokens = [];
+  selectedConnections = new Set();
+  for (const id of [
+    "connectionList",
+    "tokenList",
+    "auditList",
+    "activityList",
+    "dashboardContent",
+  ])
+    $(id).replaceChildren();
+  $("connectionForm").reset();
+  connectionPermissions.set(grant("read-only"));
+  resetToken();
+  $("downloadHistory").disabled = true;
+}
