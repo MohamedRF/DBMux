@@ -16,7 +16,7 @@ services:
       DDL_TIMEOUT_SECONDS: ${DDL_TIMEOUT_SECONDS:-60}
       TRANSACTION_TIMEOUT_SECONDS: ${TRANSACTION_TIMEOUT_SECONDS:-300}
     volumes:
-      - dbmux_data:/app/data
+      - ./dbmux_data:/app/data
     secrets:
       - mcp_master_key
     extra_hosts:
