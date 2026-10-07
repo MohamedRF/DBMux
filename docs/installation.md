@@ -43,6 +43,21 @@ Set `PUBLIC_URL=https://dbmcp.example.edu`. Forward Authorization unchanged. Lim
 
 Enable the installed Apache SSL/proxy/proxy_http modules using your OS package configuration. Arrange certificate issuance/renewal independently. Keep Compose's loopback binding when proxying on the host.
 
+## Master key permissions on Linux
+
+The container runs as `node` (UID/GID 1000). File-backed Compose secrets retain host file permissions; a key owned by root or another host user with mode `600` cannot be read by this user. Compose secret `uid`, `gid` and `mode` overrides are not implemented for file-backed sources.
+
+For an existing installation using standard rootful Docker, fix ownership without changing the key contents:
+
+```bash
+sudo chown 1000:1000 secrets/mcp_master_key.txt
+sudo chmod 400 secrets/mcp_master_key.txt
+docker compose up -d --force-recreate dbmux
+docker compose logs --tail=50 dbmux
+```
+
+Do not regenerate the master key for an existing metadata database. If permissions still fail, check user namespace remapping, rootless Docker and host security policies before changing access controls. The bind-mounted `dbmux_data` directory must also be writable by the container user.
+
 ## Backup and shutdown
 
 Stop the gateway before copying SQLite files or use a SQLite-aware online backup tool; copying only the main file while WAL writes are active is insufficient. Preserve the Docker volume and master key. SIGTERM stops requests, rolls back active transactions, closes pools and closes SQLite, with a 30-second shutdown deadline. Run a single gateway process per metadata volume.

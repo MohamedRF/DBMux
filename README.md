@@ -12,14 +12,16 @@ Name candidates considered: DBMux, SchemaDock, DatumGate, QueryHarbor, SchemaRel
 git clone <your-repository-url> dbmux
 cd dbmux
 cp .env.example .env
-mkdir -p data secrets
+mkdir -p dbmux_data secrets
 openssl rand -hex 32 > secrets/mcp_master_key.txt
-chmod 600 secrets/mcp_master_key.txt
+sudo chown 1000:1000 secrets/mcp_master_key.txt dbmux_data
+sudo chmod 400 secrets/mcp_master_key.txt
+sudo chmod 700 dbmux_data
 openssl rand -hex 32 # paste this separate random value into SETUP_TOKEN in .env
 docker compose up -d --build
 ```
 
-Set `PUBLIC_URL` to the exact browser/client origin before starting. Compose binds to `127.0.0.1:3001` by default for a local reverse proxy. Set `HOST_PORT` in `.env` to change the published port; the container continues listening on port 3000. Update `PUBLIC_URL` to match the browser/client URL when changing ports. To use a private LAN interface, set `BIND_ADDRESS` to that interface's address and `PUBLIC_URL=http://SERVER_IP:3001` during initial setup. Use HTTPS for remote developer access. SQLite persists in the `dbmux_data` Docker volume; the `data` directory is used by local Node development. A named volume avoids host-directory ownership problems with the non-root container.
+Set `PUBLIC_URL` to the exact browser/client origin before starting. Compose binds to `127.0.0.1:3001` by default for a local reverse proxy. Set `HOST_PORT` in `.env` to change the published port; the container continues listening on port 3000. Update `PUBLIC_URL` to match the browser/client URL when changing ports. To use a private LAN interface, set `BIND_ADDRESS` to that interface's address and `PUBLIC_URL=http://SERVER_IP:3001` during initial setup. Use HTTPS for remote developer access. SQLite persists in the host directory `dbmux_data`, mounted at `/app/data`; the `data` directory is used by local Node development. The Linux permission commands above allow the container's non-root user (UID/GID 1000) to read the key and write metadata. They assume standard rootful Docker without user namespace remapping; Docker Desktop uses host filesystem sharing permissions.
 
 Open the configured URL. Enter the bootstrap token from `.env`, create an administrator with a password of at least 14 characters, then:
 
