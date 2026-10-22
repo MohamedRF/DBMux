@@ -4,16 +4,67 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>DBMux · User guide</title>
+    <script src="/theme.js"></script>
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/guide.js"></script>
   </head>
   <body>
-    <header>
-      <a class="brand" href="/">DBMux<span class="brand-dot">●</span></a
-      ><span>User documentation</span
-      ><a class="header-guide" href="/">Open workspace ↗</a>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path
+          d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+        />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+      </symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24">
+        <rect x="2.5" y="4" width="19" height="13" rx="2" />
+        <path d="M8.5 21h7M12 17v4" />
+      </symbol>
+    </svg>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="app-header">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">DB</span>
+        <span class="brand-name">DBMux<span class="brand-dot">●</span></span>
+      </a>
+      <span class="header-tagline">User documentation</span>
+      <div class="header-actions">
+        <div class="theme-switch" role="group" aria-label="Colour theme">
+          <button
+            type="button"
+            data-theme-choice="light"
+            aria-pressed="false"
+            title="Light theme"
+            aria-label="Light theme"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+          <button
+            type="button"
+            data-theme-choice="dark"
+            aria-pressed="false"
+            title="Dark theme"
+            aria-label="Dark theme"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-moon" /></svg>
+          </button>
+          <button
+            type="button"
+            data-theme-choice="system"
+            aria-pressed="false"
+            title="Match system theme"
+            aria-label="Match system theme"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-monitor" /></svg>
+          </button>
+        </div>
+        <a class="header-guide" href="/">Open workspace ↗</a>
+      </div>
     </header>
-    <main>
+    <main id="main">
       <p id="message" role="status" aria-live="polite"></p>
       <section class="guide-hero">
         <p class="eyebrow">THE TEAM HANDBOOK</p>
@@ -416,8 +467,29 @@ Using DBMux connection PROJECT_DEV, inspect the allowed schemas and relevant tab
           </section>
         </div>
       </div>
-      <footer>
-        DBMux · Development database gateway <a href="/">Back to workspace ↗</a>
+      <footer class="site-footer">
+        <div class="site-footer-brand">
+          <span class="brand-mark" aria-hidden="true">DB</span>
+          <div>
+            <p class="site-footer-name">DBMux</p>
+            <p class="site-footer-tagline">
+              Development database gateway for AI coding agents
+            </p>
+          </div>
+        </div>
+        <nav class="site-footer-links" aria-label="Footer">
+          <a href="/">Back to workspace ↗</a>
+          <a href="#administrators">Administrator setup</a>
+          <a href="#developers">Developer setup</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </nav>
+        <p class="site-footer-meta">
+          <span>© 2026 DBMux</span>
+          <span class="site-footer-credit"
+            >Developed by
+            <span class="developer-name">Mohamed Rasik Farid</span></span
+          >
+        </p>
       </footer>
     </main>
   </body>

@@ -115,3 +115,60 @@ test("copy rejects empty values and explains denied clipboard access without lea
   assert.ok(!harness.messages.join(" ").includes("private content"));
   assert.equal(harness.timers.length, 0);
 });
+
+interface ThemeHarness {
+  root: { dataset: Record<string, string> };
+  store: Map<string, string>;
+  buttons: Array<{ dataset: { themeChoice: string }; pressed: string | null }>;
+}
+
+function themeHarness(
+  stored: string | null,
+  systemDark: boolean,
+): ThemeHarness {
+  const store = new Map<string, string>();
+  if (stored !== null) store.set("dbmux.theme", stored);
+  const root = { dataset: {} as Record<string, string> };
+  const buttons: ThemeHarness["buttons"] = [];
+  const source = readFileSync(
+    new URL("../src/ui/theme.js", import.meta.url),
+    "utf8",
+  );
+  runInNewContext(source, {
+    document: {
+      documentElement: root,
+      readyState: "complete",
+      addEventListener: () => {},
+      querySelectorAll: () => buttons,
+    },
+    window: {
+      matchMedia: () => ({ matches: systemDark, addEventListener: () => {} }),
+      addEventListener: () => {},
+    },
+    localStorage: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    },
+  });
+  return { root, store, buttons };
+}
+
+test("theme resolves the system preference when nothing is stored", () => {
+  const dark = themeHarness(null, true);
+  assert.equal(dark.root.dataset.theme, "dark");
+  assert.equal(dark.root.dataset.themePreference, "system");
+  const light = themeHarness(null, false);
+  assert.equal(light.root.dataset.theme, "light");
+  assert.equal(light.root.dataset.themePreference, "system");
+});
+
+test("theme honours a stored preference and ignores unusable values", () => {
+  const stored = themeHarness("light", true);
+  assert.equal(stored.root.dataset.theme, "light");
+  assert.equal(stored.root.dataset.themePreference, "light");
+  const invalid = themeHarness("neon", true);
+  assert.equal(invalid.root.dataset.theme, "dark");
+  assert.equal(invalid.root.dataset.themePreference, "system");
+});

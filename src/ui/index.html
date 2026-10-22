@@ -3,87 +3,324 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="DBMux is a self-hosted development database gateway that connects AI coding agents to Oracle and PostgreSQL under scoped, audited access."
+    />
     <title>DBMux · Development gateway</title>
+    <script src="/theme.js"></script>
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <a class="skip-link" href="#workspace">Skip to workspace</a>
-    <header>
-      <a class="brand" href="/">DBMux<span class="brand-dot">●</span></a
-      ><span>Development database gateway</span>
-      <a
-        class="header-guide"
-        href="/guide.html"
-        target="_blank"
-        rel="noreferrer"
-        >User guide ↗</a
-      ><button id="logout" hidden>Sign out</button>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-dashboard" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="9" rx="1.5" />
+        <rect x="14" y="3" width="7" height="5" rx="1.5" />
+        <rect x="14" y="12" width="7" height="9" rx="1.5" />
+        <rect x="3" y="16" width="7" height="5" rx="1.5" />
+      </symbol>
+      <symbol id="i-connections" viewBox="0 0 24 24">
+        <ellipse cx="12" cy="5" rx="8" ry="3" />
+        <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+        <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+      </symbol>
+      <symbol id="i-tokens" viewBox="0 0 24 24">
+        <circle cx="8" cy="12" r="4" />
+        <path d="M12 12h9" />
+        <path d="M18 12v3.5" />
+        <path d="M15 12v2.5" />
+      </symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24">
+        <path d="M3 12h4l3 7 4-14 3 7h4" />
+      </symbol>
+      <symbol id="i-audit" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7.5V12l3 2" />
+      </symbol>
+      <symbol id="i-install" viewBox="0 0 24 24">
+        <path d="M12 3v11" />
+        <path d="m8 10.5 4 4 4-4" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </symbol>
+      <symbol id="i-docs" viewBox="0 0 24 24">
+        <path
+          d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
+        />
+        <path d="M14 3v6h6" />
+        <path d="M9 13h6M9 17h4" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="M12 3 5 6v5c0 4.4 2.9 8.3 7 10 4.1-1.7 7-5.6 7-10V6Z" />
+        <path d="m9 12 2 2 4-4" />
+      </symbol>
+      <symbol id="i-scope" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8" />
+        <circle cx="12" cy="12" r="3" />
+      </symbol>
+      <symbol id="i-ledger" viewBox="0 0 24 24">
+        <path d="M5 3h11l3 3v15H5Z" />
+        <path d="M9 11h6M9 15h6" />
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path
+          d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+        />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+      </symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24">
+        <rect x="2.5" y="4" width="19" height="13" rx="2" />
+        <path d="M8.5 21h7M12 17v4" />
+      </symbol>
+    </svg>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="app-header">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">DB</span>
+        <span class="brand-name">DBMux<span class="brand-dot">●</span></span>
+      </a>
+      <span class="header-tagline">Development database gateway</span>
+      <div class="header-actions">
+        <div class="theme-switch" role="group" aria-label="Colour theme">
+          <button
+            type="button"
+            data-theme-choice="light"
+            aria-pressed="false"
+            title="Light theme"
+            aria-label="Light theme"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+          <button
+            type="button"
+            data-theme-choice="dark"
+            aria-pressed="false"
+            title="Dark theme"
+            aria-label="Dark theme"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-moon" /></svg>
+          </button>
+          <button
+            type="button"
+            data-theme-choice="system"
+            aria-pressed="false"
+            title="Match system theme"
+            aria-label="Match system theme"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-monitor" /></svg>
+          </button>
+        </div>
+        <a
+          class="header-guide"
+          href="/guide.html"
+          target="_blank"
+          rel="noreferrer"
+          >User guide <span aria-hidden="true">↗</span></a
+        >
+        <span id="sessionState" class="session-state" hidden>
+          <span class="session-dot" aria-hidden="true"></span>
+          <span id="sessionName">Administrator</span>
+        </span>
+        <button id="logout" class="ghost" type="button" hidden>Sign out</button>
+      </div>
     </header>
-    <main>
+    <main id="main">
       <p id="message" role="status" aria-live="polite"></p>
-      <section id="authentication">
-        <p class="eyebrow">YOUR DATABASES. YOUR CONTROL.</p>
-        <h1>Connect your agents.<br />Keep your credentials.</h1>
-        <p>
-          Database passwords stay encrypted on this server. Developers receive
-          scoped, revocable MCP tokens.
-        </p>
-        <form id="login">
-          <label
-            >Administrator name<input
-              name="name"
-              required
-              autocomplete="username" /></label
-          ><label
-            >Password<input
-              name="password"
-              type="password"
-              required
-              minlength="14"
-              autocomplete="current-password" /></label
-          ><label id="bootstrap"
-            >Initial setup token<input
-              name="setupToken"
-              type="password"
-              autocomplete="off" /></label
-          ><button id="loginButton">Sign in</button>
-        </form>
+
+      <section id="authentication" class="auth">
+        <div class="auth-intro">
+          <p class="eyebrow">YOUR DATABASES. YOUR CONTROL.</p>
+          <h1>Connect your agents.<br />Keep your credentials.</h1>
+          <p class="auth-lead">
+            Database passwords stay encrypted on this server. Developers receive
+            scoped, revocable MCP tokens.
+          </p>
+          <ul class="auth-points">
+            <li>
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-shield" />
+              </svg>
+              <div>
+                <strong>Credentials stay on the gateway</strong>
+                <span>
+                  Passwords are encrypted at rest and are never returned to the
+                  browser.
+                </span>
+              </div>
+            </li>
+            <li>
+              <svg class="icon" aria-hidden="true"><use href="#i-scope" /></svg>
+              <div>
+                <strong>Access is scoped by policy</strong>
+                <span>
+                  Schema, tool and permission limits are enforced per connection
+                  and per developer token.
+                </span>
+              </div>
+            </li>
+            <li>
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-ledger" />
+              </svg>
+              <div>
+                <strong>Every change is audited</strong>
+                <span>
+                  Requests, tool calls and SQL statements are recorded for
+                  review.
+                </span>
+              </div>
+            </li>
+          </ul>
+        </div>
+        <div class="auth-form-column">
+          <div class="auth-card">
+            <header class="auth-card-head">
+              <h2>Administrator sign in</h2>
+              <p>
+                Manage connections, developer tokens and audit history from one
+                workspace.
+              </p>
+            </header>
+            <form id="login" class="auth-form">
+              <label class="field"
+                ><span>Administrator name</span
+                ><input
+                  name="name"
+                  required
+                  autocomplete="username"
+                  placeholder="admin"
+              /></label>
+              <label class="field"
+                ><span>Password</span
+                ><input
+                  name="password"
+                  type="password"
+                  required
+                  minlength="14"
+                  autocomplete="current-password"
+                  placeholder="Your administrator password"
+              /></label>
+              <label class="field" id="bootstrap" hidden
+                ><span>Initial setup token</span
+                ><input
+                  name="setupToken"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="Bootstrap token"
+              /></label>
+              <button id="loginButton" class="primary block" type="submit">
+                Sign in
+              </button>
+            </form>
+            <footer class="auth-footer">
+              <p class="auth-footer-credit">
+                Developed by
+                <span class="developer-name">Mohamed Rasik Farid</span>
+              </p>
+              <p class="auth-footer-note">
+                The session is kept in this browser tab and expires after eight
+                hours of inactivity.
+              </p>
+            </footer>
+          </div>
+        </div>
       </section>
+
       <div id="workspace" hidden>
         <nav aria-label="Workspace">
-          <button data-page="dashboard" aria-current="page">Dashboard</button>
-          <button data-page="connections">Connections</button
-          ><button data-page="tokens">MCP access</button
-          ><button data-page="activity">Activity logs</button
-          ><button data-page="audit">Database history</button
-          ><button data-page="installation">MCP installation</button
-          ><a href="/guide.html" target="_blank" rel="noreferrer"
-            >Documentation ↗</a
-          >
+          <p class="nav-heading">Workspace</p>
+          <button data-page="dashboard" aria-current="page">
+            <svg class="icon" aria-hidden="true">
+              <use href="#i-dashboard" />
+            </svg>
+            <span>Dashboard</span>
+          </button>
+          <button data-page="connections">
+            <svg class="icon" aria-hidden="true">
+              <use href="#i-connections" />
+            </svg>
+            <span>Connections</span>
+          </button>
+          <button data-page="tokens">
+            <svg class="icon" aria-hidden="true"><use href="#i-tokens" /></svg>
+            <span>MCP access</span>
+          </button>
+          <button data-page="activity">
+            <svg class="icon" aria-hidden="true">
+              <use href="#i-activity" />
+            </svg>
+            <span>Activity logs</span>
+          </button>
+          <button data-page="audit">
+            <svg class="icon" aria-hidden="true"><use href="#i-audit" /></svg>
+            <span>Database history</span>
+          </button>
+          <button data-page="installation">
+            <svg class="icon" aria-hidden="true"><use href="#i-install" /></svg>
+            <span>MCP installation</span>
+          </button>
+          <p class="nav-heading nav-heading-spaced">Resources</p>
+          <a href="/guide.html" target="_blank" rel="noreferrer">
+            <svg class="icon" aria-hidden="true"><use href="#i-docs" /></svg>
+            <span>Documentation</span>
+            <span class="nav-external" aria-hidden="true">↗</span>
+          </a>
         </nav>
+
         <div class="overview" aria-label="Workspace overview">
-          <div><span id="connectionCount">0</span> Connections</div>
-          <div><span id="enabledCount">0</span> MCP enabled</div>
-          <div><span id="tokenCount">0</span> Active tokens</div>
+          <div class="stat">
+            <p class="stat-label">Connections</p>
+            <p class="stat-value"><span id="connectionCount">0</span></p>
+            <p class="stat-note">Configured database targets</p>
+          </div>
+          <div class="stat">
+            <p class="stat-label">MCP enabled</p>
+            <p class="stat-value"><span id="enabledCount">0</span></p>
+            <p class="stat-note">Exposed to developer tokens</p>
+          </div>
+          <div class="stat">
+            <p class="stat-label">Active tokens</p>
+            <p class="stat-value"><span id="tokenCount">0</span></p>
+            <p class="stat-note">Unrevoked and unexpired</p>
+          </div>
         </div>
-        <section id="dashboard">
-          <h1>Gateway dashboard</h1>
-          <p>
-            Review activity, access expiry and the last recorded connection
-            tests.
-          </p>
+
+        <section id="dashboard" class="page">
+          <header class="page-head">
+            <div class="page-head-text">
+              <h1>Gateway dashboard</h1>
+              <p>
+                Review activity, access expiry and the last recorded connection
+                tests.
+              </p>
+            </div>
+            <div class="page-head-actions">
+              <button id="refreshDashboard" class="secondary" type="button">
+                Refresh dashboard
+              </button>
+            </div>
+          </header>
           <div class="toolbar">
             <p id="dashboardSummary" role="status">
               Sign in to load your dashboard.
             </p>
-            <button id="refreshDashboard">Refresh dashboard</button>
           </div>
           <div id="dashboardContent"></div>
         </section>
-        <section id="connections" hidden>
-          <h1>Connections</h1>
-          <p>Use dedicated application accounts on development databases.</p>
+
+        <section id="connections" class="page" hidden>
+          <header class="page-head">
+            <div class="page-head-text">
+              <h1>Connections</h1>
+              <p>
+                Use dedicated application accounts on development databases.
+              </p>
+            </div>
+          </header>
           <div class="callout">
             Get started: save a connection → test connectivity → enable MCP →
             issue a developer token.
@@ -94,8 +331,9 @@
               >Follow the setup guide ↗</a
             >
           </div>
-          <label
-            >Find a connection<input
+          <label class="field field-search"
+            ><span>Find a connection</span
+            ><input
               id="connectionSearch"
               type="search"
               placeholder="Name, engine or connection ID"
@@ -106,37 +344,49 @@
             <fieldset>
               <legend>Connection details</legend>
               <div class="form-grid">
-                <label
-                  >Connection ID<input
+                <label class="field"
+                  ><span>Connection ID</span
+                  ><input
                     name="id"
                     required
                     maxlength="64"
                     pattern="[a-zA-Z0-9_-]+"
-                    placeholder="project-dev" /></label
-                ><label>Name<input name="name" required /></label
-                ><label
-                  >Engine<select name="engine">
+                    placeholder="project-dev"
+                /></label>
+                <label class="field"
+                  ><span>Name</span><input name="name" required
+                /></label>
+                <label class="field"
+                  ><span>Engine</span
+                  ><select name="engine">
                     <option value="oracle">Oracle</option>
                     <option value="postgres">PostgreSQL</option>
                   </select></label
-                ><label>Host<input name="host" required /></label
-                ><label
-                  >Port<input
+                >
+                <label class="field"
+                  ><span>Host</span><input name="host" required
+                /></label>
+                <label class="field"
+                  ><span>Port</span
+                  ><input
                     name="port"
                     type="number"
                     value="1521"
                     min="1"
                     max="65535"
-                    required /></label
-                ><label
-                  >Service / database<input name="database" required /></label
-                ><label
-                  >Username<input
-                    name="username"
                     required
-                    autocomplete="off" /></label
-                ><label
-                  >Password (leave empty when editing)<input
+                /></label>
+                <label class="field"
+                  ><span>Service / database</span
+                  ><input name="database" required
+                /></label>
+                <label class="field"
+                  ><span>Username</span
+                  ><input name="username" required autocomplete="off"
+                /></label>
+                <label class="field"
+                  ><span>Password (leave empty when editing)</span
+                  ><input
                     name="password"
                     type="password"
                     autocomplete="new-password"
@@ -146,24 +396,32 @@
             <fieldset>
               <legend>Engine &amp; pool settings</legend>
               <div class="form-grid">
-                <label
-                  >Custom Oracle connect string<input
-                    name="connectString" /></label
-                ><label
-                  >Oracle SID mode<input name="sid" type="checkbox" /></label
-                ><label
-                  >PostgreSQL TLS (certificate verified)<input
-                    name="ssl"
-                    type="checkbox" /></label
-                ><label
-                  >Pool minimum<input
+                <label class="field"
+                  ><span>Custom Oracle connect string</span
+                  ><input name="connectString"
+                /></label>
+                <label class="checkbox"
+                  ><input name="sid" type="checkbox" /><span
+                    >Oracle SID mode</span
+                  ></label
+                >
+                <label class="checkbox"
+                  ><input name="ssl" type="checkbox" /><span
+                    >PostgreSQL TLS (certificate verified)</span
+                  ></label
+                >
+                <label class="field"
+                  ><span>Pool minimum</span
+                  ><input
                     name="poolMin"
                     type="number"
                     min="0"
                     max="20"
-                    value="0" /></label
-                ><label
-                  >Pool maximum<input
+                    value="0"
+                /></label>
+                <label class="field"
+                  ><span>Pool maximum</span
+                  ><input
                     name="poolMax"
                     type="number"
                     min="1"
@@ -175,13 +433,16 @@
             <fieldset>
               <legend>Access &amp; safeguards</legend>
               <div class="form-grid">
-                <label
-                  >Allowed schemas, comma-separated<input
+                <label class="field"
+                  ><span>Allowed schemas, comma-separated</span
+                  ><input
                     name="schemas"
                     required
-                    placeholder="APPLICATION_DEV or public" /></label
-                ><label
-                  >Access<select name="access">
+                    placeholder="APPLICATION_DEV or public"
+                /></label>
+                <label class="field"
+                  ><span>Access</span
+                  ><select name="access">
                     <option value="read-only">Read Only</option>
                     <option value="development-write">Development Write</option>
                     <option value="full-development">Full Development</option>
@@ -192,60 +453,80 @@
                   <legend>Connection permission grants</legend>
                   <div id="connectionPermissions" class="permission-grid"></div>
                 </fieldset>
-                <label
-                  >Additional protected schemas, comma-separated<input
-                    name="protectedSchemas" /></label
-                ><label
-                  >Require WHERE for UPDATE<input
+                <label class="field"
+                  ><span>Additional protected schemas, comma-separated</span
+                  ><input name="protectedSchemas"
+                /></label>
+                <label class="checkbox"
+                  ><input
                     name="requireWhereForUpdate"
                     type="checkbox"
-                    checked /></label
-                ><label
-                  >Require WHERE for DELETE<input
+                    checked
+                  /><span>Require WHERE for UPDATE</span></label
+                >
+                <label class="checkbox"
+                  ><input
                     name="requireWhereForDelete"
                     type="checkbox"
-                    checked /></label
-                ><label
-                  >Enable MCP<input name="enabled" type="checkbox" /></label
-                ><label
-                  >Disabled tool names, comma-separated<input
-                    name="disabledTools" /></label
-                ><label
-                  >Blocked tables, comma-separated<input
-                    name="blockedTables" /></label
-                ><label
-                  >Blocked columns, comma-separated<input name="blockedColumns"
+                    checked
+                  /><span>Require WHERE for DELETE</span></label
+                >
+                <label class="checkbox"
+                  ><input name="enabled" type="checkbox" /><span
+                    >Enable MCP</span
+                  ></label
+                >
+                <label class="field"
+                  ><span>Disabled tool names, comma-separated</span
+                  ><input name="disabledTools"
+                /></label>
+                <label class="field"
+                  ><span>Blocked tables, comma-separated</span
+                  ><input name="blockedTables"
+                /></label>
+                <label class="field"
+                  ><span>Blocked columns, comma-separated</span
+                  ><input name="blockedColumns"
                 /></label>
               </div>
             </fieldset>
             <div class="form-actions">
-              <button>Save connection</button
-              ><button id="resetConnection" type="button">
+              <button class="primary" type="submit">Save connection</button>
+              <button id="resetConnection" class="secondary" type="button">
                 New connection
               </button>
             </div>
           </form>
-          <p>
+          <p class="form-note">
             After saving, test the connection, then enable MCP. Stored passwords
             are never returned. When editing a custom Oracle connect string,
             re-enter it to replace it; leave it blank to keep the saved value.
           </p>
         </section>
-        <section id="tokens" hidden>
-          <h1>Developer tokens</h1>
-          <p>
-            Create one token per developer. Tokens appear once; revocation does
-            not change database passwords. Edit active tokens to update access.
-            Revoke a token before deleting it; activity logs are retained.
-          </p>
+
+        <section id="tokens" class="page" hidden>
+          <header class="page-head">
+            <div class="page-head-text">
+              <h1>Developer tokens</h1>
+              <p>
+                Create one token per developer. Tokens appear once; revocation
+                does not change database passwords. Edit active tokens to update
+                access. Revoke a token before deleting it; activity logs are
+                retained.
+              </p>
+            </div>
+          </header>
           <div class="toolbar">
-            <label
-              >Find a token<input
+            <label class="field"
+              ><span>Find a token</span
+              ><input
                 id="tokenSearch"
                 type="search"
-                placeholder="Developer name or connection" /></label
-            ><label
-              >Status<select id="tokenStatus">
+                placeholder="Developer name or connection"
+            /></label>
+            <label class="field"
+              ><span>Status</span
+              ><select id="tokenStatus">
                 <option value="all">All tokens</option>
                 <option value="active">Active</option>
                 <option value="expired">Expired</option>
@@ -256,11 +537,14 @@
           <div id="tokenList"></div>
           <h2 id="tokenHeading">Create a developer token</h2>
           <form id="tokenForm">
-            <label>Developer / token name<input name="name" required /></label>
+            <label class="field"
+              ><span>Developer / token name</span><input name="name" required
+            /></label>
             <fieldset class="connection-picker">
               <legend>Permitted connections</legend>
-              <label
-                >Find connections to grant<input
+              <label class="field"
+                ><span>Find connections to grant</span
+                ><input
                   id="tokenConnectionSearch"
                   type="search"
                   placeholder="Connection name, engine or ID"
@@ -270,20 +554,18 @@
               </p>
               <div id="tokenConnectionPicker"></div>
             </fieldset>
-            <label
-              >Permissions<select name="access">
+            <label class="field"
+              ><span>Permissions</span
+              ><select name="access">
                 <option value="read-only">Read Only</option>
                 <option value="development-write">Development Write</option>
                 <option value="full-development">Full Development</option>
                 <option value="custom">Custom permissions</option>
               </select></label
-            ><label
-              >Expires in days<input
-                name="days"
-                type="number"
-                value="90"
-                min="1"
-                max="365"
+            >
+            <label class="field"
+              ><span>Expires in days</span
+              ><input name="days" type="number" value="90" min="1" max="365"
             /></label>
             <fieldset class="permission-fieldset">
               <legend>Token permission grants</legend>
@@ -299,11 +581,15 @@
               <div id="tokenAccessPreview"></div>
             </fieldset>
             <div class="form-actions">
-              <button id="saveToken">Create token</button
-              ><button id="resetToken" type="button">Cancel / new token</button>
+              <button id="saveToken" class="primary" type="submit">
+                Create token
+              </button>
+              <button id="resetToken" class="secondary" type="button">
+                Cancel / new token
+              </button>
             </div>
           </form>
-          <p id="tokenEditNote">
+          <p id="tokenEditNote" class="form-note">
             Choose explicit connection access. Permissions also respect each
             connection’s policy.
           </p>
@@ -317,65 +603,81 @@
             <button id="copyToken" disabled>Copy token</button>
           </div>
         </section>
-        <section id="audit" hidden>
-          <h1>Database history</h1>
-          <p>
-            Inspect audited SQL operations and their outcomes. Use Activity logs
-            for caller and network details.
-          </p>
+
+        <section id="audit" class="page" hidden>
+          <header class="page-head">
+            <div class="page-head-text">
+              <h1>Database history</h1>
+              <p>
+                Inspect audited SQL operations and their outcomes. Use Activity
+                logs for caller and network details.
+              </p>
+            </div>
+          </header>
           <form id="auditForm">
-            <label
-              >Connection ID<input
-                name="connectionId"
-                required
-                list="connectionOptions" /></label
-            ><label
-              >Offset<input
-                name="offset"
-                type="number"
-                value="0"
-                min="0" /></label
-            ><button>Load history</button>
+            <label class="field"
+              ><span>Connection ID</span
+              ><input name="connectionId" required list="connectionOptions"
+            /></label>
+            <label class="field"
+              ><span>Offset</span
+              ><input name="offset" type="number" value="0" min="0"
+            /></label>
+            <button class="primary" type="submit">Load history</button>
           </form>
-          <label
-            >Filter loaded history<input
-              id="auditSearch"
-              placeholder="Project, branch, SQL, status"
+          <label class="field field-search"
+            ><span>Filter loaded history</span
+            ><input id="auditSearch" placeholder="Project, branch, SQL, status"
           /></label>
-          <button id="downloadAllHistory">
-            Download all connection history (NDJSON)
-          </button>
-          <button id="downloadHistory" disabled>
-            Download loaded history (JSON)
-          </button>
+          <div class="form-actions">
+            <button id="downloadAllHistory" class="secondary" type="button">
+              Download all connection history (NDJSON)
+            </button>
+            <button
+              id="downloadHistory"
+              class="secondary"
+              type="button"
+              disabled
+            >
+              Download loaded history (JSON)
+            </button>
+          </div>
           <div id="auditList"></div>
         </section>
-        <section id="activity" hidden>
-          <h1>Activity logs</h1>
-          <p>
-            Review MCP requests, tool results and portal API access. Caller
-            names identify the token owner; the source is the direct peer
-            address, which may be a proxy. Bodies, credentials and raw errors
-            are excluded.
-          </p>
+
+        <section id="activity" class="page" hidden>
+          <header class="page-head">
+            <div class="page-head-text">
+              <h1>Activity logs</h1>
+              <p>
+                Review MCP requests, tool results and portal API access. Caller
+                names identify the token owner; the source is the direct peer
+                address, which may be a proxy. Bodies, credentials and raw
+                errors are excluded.
+              </p>
+            </div>
+          </header>
           <form id="activityForm">
-            <label
-              >Search activity<input
+            <label class="field"
+              ><span>Search activity</span
+              ><input
                 name="q"
                 type="search"
                 maxlength="200"
                 placeholder="Caller, token ID, connection, tool or request ID"
             /></label>
-            <label
-              >Type<select name="kind">
+            <label class="field"
+              ><span>Type</span
+              ><select name="kind">
                 <option value="">All activity</option>
                 <option value="tool">MCP tools</option>
                 <option value="mcp">MCP requests</option>
                 <option value="api">Portal API</option>
               </select></label
             >
-            <label
-              >Outcome<select name="status">
+            <label class="field"
+              ><span>Outcome</span
+              ><select name="status">
                 <option value="">All outcomes</option>
                 <option>success</option>
                 <option>error</option>
@@ -383,39 +685,49 @@
                 <option>aborted</option>
               </select></label
             >
-            <label
-              >Caller name<input
+            <label class="field"
+              ><span>Caller name</span
+              ><input
                 name="actor"
                 placeholder="Exact developer or administrator name"
                 maxlength="100"
             /></label>
-            <label
-              >Token / caller ID<input
+            <label class="field"
+              ><span>Token / caller ID</span
+              ><input
                 name="actorId"
                 maxlength="100"
                 placeholder="Exact token ID or admin"
             /></label>
-            <label
-              >Connection<input
+            <label class="field"
+              ><span>Connection</span
+              ><input
                 name="connectionId"
                 list="connectionOptions"
                 maxlength="64"
                 placeholder="Connection ID"
             /></label>
-            <label
-              >Tool / operation<input
+            <label class="field"
+              ><span>Tool / operation</span
+              ><input
                 name="operation"
                 maxlength="100"
                 placeholder="Exact tool name or API operation"
             /></label>
-            <label>From<input type="datetime-local" name="from" /></label
-            ><label>To<input type="datetime-local" name="to" /></label>
-            <button>Apply filters</button>
+            <label class="field"
+              ><span>From</span><input type="datetime-local" name="from"
+            /></label>
+            <label class="field"
+              ><span>To</span><input type="datetime-local" name="to"
+            /></label>
+            <button class="primary" type="submit">Apply filters</button>
           </form>
           <div class="toolbar">
             <p id="activitySummary" role="status">Load activity to begin.</p>
-            <button id="refreshActivity">Refresh</button
-            ><button id="downloadActivity">
+            <button id="refreshActivity" class="secondary" type="button">
+              Refresh
+            </button>
+            <button id="downloadActivity" class="secondary" type="button">
               Download all matching logs (NDJSON)
             </button>
           </div>
@@ -437,8 +749,17 @@
             </table>
           </div>
           <div class="form-actions">
-            <button id="activityPrevious" disabled>Previous</button
-            ><button id="activityNext" disabled>Next</button>
+            <button
+              id="activityPrevious"
+              class="secondary"
+              type="button"
+              disabled
+            >
+              Previous
+            </button>
+            <button id="activityNext" class="secondary" type="button" disabled>
+              Next
+            </button>
           </div>
           <div
             id="requestTimeline"
@@ -447,13 +768,18 @@
             aria-label="Request timeline"
           ></div>
         </section>
-        <section id="installation" hidden>
-          <h1>MCP installation</h1>
-          <p>
-            Connect your AI coding client in three steps. Ask your administrator
-            for a personal developer token. Database drivers and database
-            passwords stay on the DBMux server.
-          </p>
+
+        <section id="installation" class="page" hidden>
+          <header class="page-head">
+            <div class="page-head-text">
+              <h1>MCP installation</h1>
+              <p>
+                Connect your AI coding client in three steps. Ask your
+                administrator for a personal developer token. Database drivers
+                and database passwords stay on the DBMux server.
+              </p>
+            </div>
+          </header>
           <div class="code-card">
             <div class="code-heading">
               <h2>1. Copy your MCP endpoint</h2>
@@ -522,14 +848,40 @@ Use DBMux to call db_connections and list the development connections available 
               >Read developer documentation ↗</a
             >
           </div>
-          <p>
+          <p class="form-note">
             Use HTTPS for remote access. Client configuration formats and
             environment substitution vary; Generic MCP is a template, not a
             universal format.
           </p>
         </section>
       </div>
+
       <datalist id="connectionOptions"></datalist>
+
+      <footer class="site-footer">
+        <div class="site-footer-brand">
+          <span class="brand-mark" aria-hidden="true">DB</span>
+          <div>
+            <p class="site-footer-name">DBMux</p>
+            <p class="site-footer-tagline">
+              Development database gateway for AI coding agents
+            </p>
+          </div>
+        </div>
+        <nav class="site-footer-links" aria-label="Footer">
+          <a href="/guide.html">User guide</a>
+          <a href="/guide.html#administrators">Administrator setup</a>
+          <a href="/guide.html#developers">Developer setup</a>
+          <a href="/guide.html#troubleshooting">Troubleshooting</a>
+        </nav>
+        <p class="site-footer-meta">
+          <span>© 2026 DBMux</span>
+          <span class="site-footer-credit"
+            >Developed by
+            <span class="developer-name">Mohamed Rasik Farid</span></span
+          >
+        </p>
+      </footer>
     </main>
   </body>
 </html>

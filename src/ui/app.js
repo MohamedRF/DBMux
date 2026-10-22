@@ -13,7 +13,32 @@ import {
 } from "./access-controls.js";
 import { renderDashboard } from "./dashboard.js";
 import { createTimeline, hasRequestTimeline } from "./timeline.js";
-let session = "";
+const SESSION_KEY = "dbmux.admin.session";
+const SESSION_NAME_KEY = "dbmux.admin.name";
+function readStored(key) {
+  try {
+    if (typeof localStorage === "undefined") return "";
+    return localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+function storeSession(value, name) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (value) {
+      localStorage.setItem(SESSION_KEY, value);
+      if (name) localStorage.setItem(SESSION_NAME_KEY, name);
+      return;
+    }
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_NAME_KEY);
+  } catch {
+    /* Storage is unavailable; the session stays in memory for this tab. */
+  }
+}
+let session = readStored(SESSION_KEY);
+let adminName = readStored(SESSION_NAME_KEY);
 let setup = false;
 let editing = false;
 let oneTimeToken = "";
@@ -54,14 +79,53 @@ async function api(path, method = "GET", body, token = session) {
     session &&
     token === session
   ) {
-    session = "";
-    clearPrivateViews();
-    $("workspace").hidden = true;
-    $("authentication").hidden = false;
-    $("logout").hidden = true;
+    endSession();
   }
   if (!r.ok) throw new Error(value.error?.message ?? "Request failed");
   return value;
+}
+function showLogin() {
+  $("workspace").hidden = true;
+  $("authentication").hidden = false;
+  $("logout").hidden = true;
+  $("sessionState").hidden = true;
+}
+function showWorkspace() {
+  $("authentication").hidden = true;
+  $("workspace").hidden = false;
+  $("logout").hidden = false;
+  $("sessionState").hidden = false;
+  $("sessionName").textContent = adminName || "Administrator";
+}
+function endSession() {
+  session = "";
+  adminName = "";
+  storeSession("");
+  clearPrivateViews();
+  showLogin();
+}
+async function loadInstallation() {
+  installationUrl = (await api("/installation")).url;
+  $("endpoint").textContent = installationUrl;
+  showClient("Codex");
+}
+async function restoreSession() {
+  const candidate = session;
+  if (!candidate) {
+    showLogin();
+    return;
+  }
+  try {
+    await api("/status", "GET", undefined, candidate);
+    if (session !== candidate) return;
+    showWorkspace();
+    await refresh();
+    await loadInstallation();
+    openPage("dashboard");
+    report("Session restored.");
+  } catch {
+    if (session === candidate) endSession();
+  }
 }
 function report(e) {
   clearTimeout(messageTimer);
@@ -77,6 +141,7 @@ function button(label, fn) {
   b.textContent = label;
   b.type = "button";
   if (/^(Delete|Revoke)/.test(label)) b.classList.add("danger");
+  else if (/^(Save|Create|Enable)/.test(label)) b.classList.add("primary");
   b.onclick = async () => {
     b.disabled = true;
     try {
@@ -122,6 +187,7 @@ async function refresh() {
       const a = item(
         `${c.name} · ${c.engine} · ${c.enabled ? "MCP enabled" : "MCP disabled"} · ${c.id}`,
       );
+      a.dataset.mcp = c.enabled ? "enabled" : "disabled";
       a.append(
         button("Copy connection ID", () => copyText(c.id, null, report)),
         button("Test", async () => {
@@ -302,15 +368,13 @@ $("login").onsubmit = async (e) => {
     session = (
       await api("/login", "POST", { name: a.name, password: a.password }, "")
     ).session;
+    adminName = a.name.trim();
+    storeSession(session, adminName);
     e.target.reset();
-    $("authentication").hidden = true;
-    $("workspace").hidden = false;
-    $("logout").hidden = false;
+    showWorkspace();
     report("Signed in.");
     await refresh();
-    installationUrl = (await api("/installation")).url;
-    $("endpoint").textContent = installationUrl;
-    showClient("Codex");
+    await loadInstallation();
     openPage("dashboard");
   } catch (error) {
     report(error);
@@ -322,11 +386,7 @@ $("logout").onclick = async () => {
   } catch (error) {
     report(error);
   } finally {
-    session = "";
-    clearPrivateViews();
-    $("workspace").hidden = true;
-    $("authentication").hidden = false;
-    $("logout").hidden = true;
+    endSession();
   }
 };
 document.querySelectorAll("[data-page]").forEach(
@@ -562,6 +622,7 @@ api("/setup")
     $("loginButton").textContent = setup ? "Create administrator" : "Sign in";
   })
   .catch(report);
+restoreSession();
 for (const form of document.querySelectorAll("form")) {
   const submit = form.onsubmit;
   if (!submit) continue;
