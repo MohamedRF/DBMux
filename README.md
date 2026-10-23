@@ -270,16 +270,17 @@ Report reproducible bugs through [GitHub issues](https://github.com/MohamedRF/DB
 
 ## Documentation
 
-| Guide                                                                          | What you will find                                                    |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| [Installation and networking](docs/installation.md)                            | Reverse proxies, Docker networking, permissions, backup and shutdown. |
-| [MCP clients](docs/mcp-clients.md)                                             | Client configuration and the local STDIO bridge.                      |
-| [Administrator workspace](docs/admin-workspace.md)                             | Tokens, effective access, dashboard, activity and request timelines.  |
-| [Security model](docs/security.md)                                             | Encryption, identities, SQL policy and trust boundaries.              |
-| [Architecture](ARCHITECTURE.md) · [Implementation guide](docs/architecture.md) | Service boundaries and how to extend the project.                     |
-| [PostgreSQL](docs/postgresql.md) · [Oracle](docs/oracle.md)                    | Engine-specific behavior and acceptance requirements.                 |
-| [Verification](docs/verification.md)                                           | Recorded verification and outstanding limitations.                    |
-| [Contributing](CONTRIBUTING.md)                                                | Development workflow and review expectations.                         |
+| Guide                                                                          | What you will find                                                                                                                  |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [Developer setup and agent playbook](DEVELOPER.md)                             | Client installation for Codex, Claude Code, Cursor, VS Code, Antigravity, Kilo Code and Cline, plus a copy-paste `AGENTS.md` block. |
+| [Installation and networking](docs/installation.md)                            | Reverse proxies, Docker networking, permissions, backup and shutdown.                                                               |
+| [MCP clients](docs/mcp-clients.md)                                             | Client configuration and the local STDIO bridge.                                                                                    |
+| [Administrator workspace](docs/admin-workspace.md)                             | Tokens, effective access, dashboard, activity and request timelines.                                                                |
+| [Security model](docs/security.md)                                             | Encryption, identities, SQL policy and trust boundaries.                                                                            |
+| [Architecture](ARCHITECTURE.md) · [Implementation guide](docs/architecture.md) | Service boundaries and how to extend the project.                                                                                   |
+| [PostgreSQL](docs/postgresql.md) · [Oracle](docs/oracle.md)                    | Engine-specific behavior and acceptance requirements.                                                                               |
+| [Verification](docs/verification.md)                                           | Recorded verification and outstanding limitations.                                                                                  |
+| [Contributing](CONTRIBUTING.md)                                                | Development workflow and review expectations.                                                                                       |
 
 ## License
 
