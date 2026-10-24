@@ -1109,6 +1109,22 @@ summary:hover {
   font-weight: 650;
 }
 
+.developer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.developer-link .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.icon-github {
+  fill: currentColor;
+  stroke: none;
+}
+
 .auth-footer-note {
   color: var(--subtle);
   margin-top: 4px !important;
