@@ -13,6 +13,8 @@ import {
 } from "./access-controls.js";
 import { renderDashboard } from "./dashboard.js";
 import { createTimeline, hasRequestTimeline } from "./timeline.js";
+import { formatDateTime } from "./format.js";
+import { confirmAction } from "./confirm.js";
 const SESSION_KEY = "dbmux.admin.session";
 const SESSION_NAME_KEY = "dbmux.admin.name";
 function readStored(key) {
@@ -48,6 +50,8 @@ let editingToken = "";
 let messageTimer;
 let activityOffset = 0;
 let activityFilters = new URLSearchParams();
+const AUDIT_LIMIT = 100;
+let auditOffset = 0;
 let selectedClient = "Codex";
 let cachedConnections = [];
 let cachedTokens = [];
@@ -60,6 +64,53 @@ const csv = (s) =>
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+const PAGES = [
+  "dashboard",
+  "connections",
+  "tokens",
+  "activity",
+  "audit",
+  "installation",
+];
+let lastActivated = null;
+function hashPage() {
+  const page = location.hash.replace(/^#/, "");
+  return PAGES.includes(page) ? page : null;
+}
+function activatePage(page) {
+  page = PAGES.includes(page) ? page : "dashboard";
+  if (page === lastActivated) return;
+  lastActivated = page;
+  for (const id of PAGES) $(id).hidden = id !== page;
+  const section = $(page);
+  section.querySelector("h1").tabIndex = -1;
+  section.querySelector("h1").focus({ preventScroll: true });
+  $("workspaceOverview").hidden = page !== "dashboard";
+  if (page !== "activity") timeline.clear();
+  if (page === "dashboard") loadDashboard().catch(report);
+  if (page === "activity") loadActivity().catch(report);
+  if (page !== "tokens") clearToken();
+  document.querySelectorAll("[data-page]").forEach((tab) => {
+    if (tab.dataset.page === page) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
+  });
+}
+function openPage(page) {
+  page = PAGES.includes(page) ? page : "dashboard";
+  if (hashPage() !== page) location.hash = page;
+  activatePage(page); // Activate immediately; the matching hashchange is a no-op.
+}
+window.addEventListener("hashchange", () =>
+  activatePage(hashPage() ?? "dashboard"),
+);
+document.addEventListener("keydown", (event) => {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const index = Number(event.key);
+  if (!Number.isInteger(index) || index < 1 || index > PAGES.length) return;
+  if ($("workspace").hidden) return;
+  event.preventDefault();
+  openPage(PAGES[index - 1]);
+});
 async function api(path, method = "GET", body, token = session) {
   const adminRequest = Boolean(session && token === session);
   const r = await fetch("/api" + path, {
@@ -80,8 +131,13 @@ async function api(path, method = "GET", body, token = session) {
     token === session
   ) {
     endSession();
+    throw new Error("Your session expired. Sign in again.");
   }
-  if (!r.ok) throw new Error(value.error?.message ?? "Request failed");
+  if (!r.ok) {
+    const error = new Error(value.error?.message ?? "Request failed");
+    if (Array.isArray(value.error?.issues)) error.issues = value.error.issues;
+    throw error;
+  }
   return value;
 }
 function showLogin() {
@@ -121,20 +177,30 @@ async function restoreSession() {
     showWorkspace();
     await refresh();
     await loadInstallation();
-    openPage("dashboard");
+    openPage(hashPage() ?? "dashboard");
     report("Session restored.");
-  } catch {
+  } catch (error) {
     if (session === candidate) endSession();
+    if (error instanceof Error && /session expired/i.test(error.message))
+      report(error);
+    else
+      report(
+        new Error(
+          "Your session expired or the gateway could not be reached. Sign in again.",
+        ),
+      );
   }
 }
 function report(e) {
   clearTimeout(messageTimer);
-  if (!(e instanceof Error))
+  const isError = e instanceof Error;
+  if (!isError)
     messageTimer = setTimeout(() => {
       $("message").textContent = "";
     }, 6000);
   $("message").textContent = e.message ?? String(e);
-  $("message").classList.toggle("error", e instanceof Error);
+  $("message").classList.toggle("error", isError);
+  $("message").setAttribute("role", isError ? "alert" : "status");
 }
 function button(label, fn) {
   const b = document.createElement("button");
@@ -182,6 +248,21 @@ async function refresh() {
       return option;
     }),
   );
+  const auditSelect = $("auditConnection");
+  if (auditSelect) {
+    const previous = auditSelect.value;
+    auditSelect.replaceChildren(
+      ...(connections.length
+        ? connections.map((c) => {
+            const option = new Option(`${c.name} (${c.id})`, c.id);
+            return option;
+          })
+        : [new Option("No connections yet", "")]),
+    );
+    if (connections.some((c) => c.id === previous))
+      auditSelect.value = previous;
+    else auditOffset = 0;
+  }
   $("connectionList").replaceChildren(
     ...connections.map((c) => {
       const a = item(
@@ -199,7 +280,7 @@ async function refresh() {
       label.textContent = !health
         ? "Not tested"
         : health.connected
-          ? `Tested ${new Date(health.checkedAt).toLocaleString()}${
+          ? `Tested ${formatDateTime(health.checkedAt)}${
               Number.isFinite(health.latencyMs)
                 ? ` · ${Math.round(health.latencyMs)} ms`
                 : ""
@@ -271,10 +352,14 @@ async function refresh() {
           f.scrollIntoView({ behavior: "smooth", block: "start" });
         }),
         button("Delete connection", async () => {
-          if (confirm("Delete this server connection configuration?")) {
-            await api("/connections/" + c.id, "DELETE");
-            await refresh();
-          }
+          const ok = await confirmAction({
+            title: `Delete “${c.name}”?`,
+            body: "This removes the saved connection configuration. MCP tokens keep their other connection access. This cannot be undone.",
+            confirmLabel: "Delete connection",
+          });
+          if (!ok) return;
+          await api("/connections/" + c.id, "DELETE");
+          await refresh();
         }),
       );
       return a;
@@ -309,8 +394,15 @@ async function refresh() {
   $("tokenList").replaceChildren(
     ...tokens.map((t) => {
       const a = item(
-        `${t.name} · ${t.connections.join(", ")} · ${t.revoked ? "revoked" : t.expiresAt <= Date.now() ? "expired " + new Date(t.expiresAt).toLocaleString() : "expires " + new Date(t.expiresAt).toLocaleString()}`,
+        `${t.name} · ${t.connections.join(", ")} · ${t.revoked ? "revoked" : t.expiresAt <= Date.now() ? "expired " + formatDateTime(t.expiresAt) : "expires " + formatDateTime(t.expiresAt)}`,
       );
+      const active = !t.revoked && t.expiresAt > Date.now();
+      if (active && t.expiresAt - Date.now() <= 7 * 86400000) {
+        const chip = document.createElement("span");
+        chip.className = "token-expiring";
+        chip.textContent = "Expires within 7 days";
+        a.append(chip);
+      }
       const access = document.createElement("details");
       const summary = document.createElement("summary");
       summary.textContent = "Effective access by connection";
@@ -328,17 +420,16 @@ async function refresh() {
         : t.expiresAt <= Date.now()
           ? "expired"
           : "active";
-      const active = !t.revoked && t.expiresAt > Date.now();
       if (active) a.append(button("Edit token", () => editToken(t)));
       if (!active)
         a.append(
           button("Delete token", async () => {
-            if (
-              !confirm(
-                "Delete this inactive token? Its activity logs will be retained.",
-              )
-            )
-              return;
+            const ok = await confirmAction({
+              title: `Delete “${t.name}”?`,
+              body: "This removes the inactive token permanently. Its activity logs are retained for review.",
+              confirmLabel: "Delete token",
+            });
+            if (!ok) return;
             await api(
               "/tokens/" + encodeURIComponent(t.id) + "/remove",
               "POST",
@@ -351,24 +442,24 @@ async function refresh() {
       if (active)
         a.append(
           button("Revoke", async () => {
-            if (
-              !confirm(
-                "Revoke this developer token? Its owner will lose access immediately.",
-              )
-            )
-              return;
+            const ok = await confirmAction({
+              title: `Revoke “${t.name}”?`,
+              body: "Its owner loses access immediately. Database passwords are not changed; issue or rotate a new token to restore access.",
+              confirmLabel: "Revoke token",
+            });
+            if (!ok) return;
             await api("/tokens/" + t.id, "DELETE");
             if (editingToken === t.id) resetToken();
             report("Token revoked. Access removed immediately.");
             await refresh();
           }),
           button("Rotate", async () => {
-            if (
-              !confirm(
-                "Replace this token? The existing token stops working immediately. Copy and deliver the replacement to its owner.",
-              )
-            )
-              return;
+            const ok = await confirmAction({
+              title: `Replace “${t.name}”?`,
+              body: "The existing token stops working immediately. The replacement appears in the reveal box; deliver it privately to its owner.",
+              confirmLabel: "Rotate token",
+            });
+            if (!ok) return;
             const value = await api("/tokens/" + t.id + "/rotate", "POST");
             if (editingToken === t.id) resetToken();
             revealToken(value.token);
@@ -388,6 +479,41 @@ async function refresh() {
         "Create a personal token with explicit connection access.",
       ),
     );
+}
+const POLICY_FIELD_MAP = { allowedSchemas: "schemas" };
+function fieldNameForPath(path) {
+  const parts = String(path ?? "")
+    .split(".")
+    .filter(Boolean);
+  if (!parts.length) return null;
+  if (parts[0] === "permissions") return null;
+  const last = parts[parts.length - 1];
+  if (parts[0] === "policy") return POLICY_FIELD_MAP[last] ?? last;
+  return last;
+}
+function clearFieldErrors(form) {
+  for (const el of form.querySelectorAll(".field-invalid"))
+    el.classList.remove("field-invalid");
+  for (const el of form.querySelectorAll(".field-error")) el.remove();
+}
+function showFieldErrors(form, issues) {
+  if (!form || !Array.isArray(issues)) return;
+  clearFieldErrors(form);
+  for (const issue of issues.slice(0, 10)) {
+    const name = fieldNameForPath(issue?.path);
+    if (!name) continue;
+    const control = form.elements[name];
+    if (!(control instanceof HTMLElement)) continue;
+    control.classList.add("field-invalid");
+    control.setAttribute("aria-invalid", "true");
+    const label = control.closest("label");
+    if (label && !label.querySelector(".field-error")) {
+      const hint = document.createElement("small");
+      hint.className = "field-error";
+      hint.textContent = issue?.message ?? "Invalid value.";
+      label.append(hint);
+    }
+  }
 }
 $("login").onsubmit = async (e) => {
   e.preventDefault();
@@ -414,7 +540,7 @@ $("login").onsubmit = async (e) => {
     report("Signed in.");
     await refresh();
     await loadInstallation();
-    openPage("dashboard");
+    openPage(hashPage() ?? "dashboard");
   } catch (error) {
     report(error);
   }
@@ -428,39 +554,24 @@ $("logout").onclick = async () => {
     endSession();
   }
 };
-document.querySelectorAll("[data-page]").forEach(
-  (b) =>
-    (b.onclick = () => {
-      [
-        "dashboard",
-        "connections",
-        "tokens",
-        "activity",
-        "audit",
-        "installation",
-      ].forEach((id) => ($(id).hidden = id !== b.dataset.page));
-      $(b.dataset.page).querySelector("h1").tabIndex = -1;
-      $(b.dataset.page).querySelector("h1").focus({ preventScroll: true });
-      if (b.dataset.page !== "activity") timeline.clear();
-      if (b.dataset.page === "dashboard") loadDashboard().catch(report);
-      if (b.dataset.page === "activity") loadActivity().catch(report);
-      if (b.dataset.page !== "tokens") {
-        $("newToken").textContent = "";
-        oneTimeToken = "";
-        $("tokenReveal").hidden = true;
-        $("copyToken").disabled = true;
-      }
-      document.querySelectorAll("[data-page]").forEach((tab) => {
-        if (tab === b) tab.setAttribute("aria-current", "page");
-        else tab.removeAttribute("aria-current");
-      });
-    }),
-);
+for (const b of document.querySelectorAll("[data-page]"))
+  b.addEventListener("click", () => openPage(b.dataset.page));
 $("connectionForm").onsubmit = async (e) => {
   e.preventDefault();
   try {
     const f = e.target;
     const a = fields(f);
+    if (Number(a.poolMin) > Number(a.poolMax)) {
+      const invalid = new Error("Pool minimum exceeds maximum.");
+      invalid.issues = [
+        { path: "poolMin", message: "Pool minimum exceeds pool maximum." },
+        {
+          path: "poolMax",
+          message: "Pool maximum must be at least the pool minimum.",
+        },
+      ];
+      throw invalid;
+    }
     const input = {
       id: a.id,
       name: a.name,
@@ -500,9 +611,14 @@ $("connectionForm").onsubmit = async (e) => {
     report("Connection saved. Test before enabling MCP.");
     await refresh();
   } catch (error) {
+    showFieldErrors(e.target, error.issues);
     report(error);
   }
 };
+for (const eventName of ["input", "change"])
+  $("connectionForm").addEventListener(eventName, () =>
+    clearFieldErrors($("connectionForm")),
+  );
 $("resetConnection").onclick = () => {
   editing = false;
   $("connectionForm").reset();
@@ -520,9 +636,11 @@ $("removeInactiveTokens").onclick = async () => {
     return;
   }
   if (
-    !confirm(
-      `Delete ${inactive.length} inactive token(s)? Activity logs will be retained.`,
-    )
+    !(await confirmAction({
+      title: `Delete ${inactive.length} inactive token${inactive.length === 1 ? "" : "s"}?`,
+      body: "These tokens stop working and are removed permanently. Their activity logs are retained.",
+      confirmLabel: "Remove tokens",
+    }))
   )
     return;
   const button = $("removeInactiveTokens");
@@ -573,7 +691,13 @@ function revealToken(token) {
   $("newToken").textContent = token;
   $("tokenReveal").hidden = false;
   $("copyToken").disabled = false;
+  $("tokenReveal").scrollIntoView({ behavior: "smooth", block: "center" });
+  $("newToken").focus({ preventScroll: true });
 }
+$("dismissToken").onclick = () => {
+  clearToken();
+  report("Token dismissed. It remains valid for its owner.");
+};
 function renderHistory() {
   const search = $("auditSearch").value.toLowerCase();
   $("auditList").replaceChildren(
@@ -608,18 +732,50 @@ function renderHistory() {
       ),
     );
 }
+async function loadHistory() {
+  const connectionId = $("auditConnection").value;
+  if (!connectionId) {
+    report(new Error("Choose a connection first."));
+    return;
+  }
+  history = await api(
+    "/audit?connectionId=" +
+      encodeURIComponent(connectionId) +
+      "&offset=" +
+      auditOffset +
+      "&limit=" +
+      AUDIT_LIMIT,
+  );
+  renderHistory();
+  $("downloadHistory").disabled = !history.length;
+  $("auditPager").textContent =
+    history.length === 0 && auditOffset === 0
+      ? "No records"
+      : `Offset ${auditOffset} · showing ${history.length}`;
+  $("auditPrevious").disabled = auditOffset === 0;
+  $("auditNext").disabled = history.length < AUDIT_LIMIT;
+}
 $("auditForm").onsubmit = async (e) => {
   e.preventDefault();
   try {
-    const a = fields(e.target);
-    history = await api(
-      "/audit?connectionId=" +
-        encodeURIComponent(a.connectionId) +
-        "&offset=" +
-        Number(a.offset),
-    );
-    renderHistory();
-    $("downloadHistory").disabled = !history.length;
+    auditOffset = 0;
+    await loadHistory();
+  } catch (error) {
+    report(error);
+  }
+};
+$("auditPrevious").onclick = async () => {
+  auditOffset = Math.max(0, auditOffset - AUDIT_LIMIT);
+  try {
+    await loadHistory();
+  } catch (error) {
+    report(error);
+  }
+};
+$("auditNext").onclick = async () => {
+  auditOffset += AUDIT_LIMIT;
+  try {
+    await loadHistory();
   } catch (error) {
     report(error);
   }
@@ -749,7 +905,7 @@ function editToken(token) {
   $("saveToken").textContent = "Save changes";
   $("tokenEditNote").textContent =
     "The secret stays the same. Leave expiry blank to keep " +
-    new Date(token.expiresAt).toLocaleString() +
+    formatDateTime(token.expiresAt) +
     ". Enter days to set a new expiry from today.";
   f.scrollIntoView({ behavior: "smooth", block: "center" });
   f.elements.name.focus({ preventScroll: true });
@@ -802,7 +958,7 @@ async function loadActivity() {
         const tr = document.createElement("tr");
         tr.dataset.status = row.status;
         for (const value of [
-          new Date(row.timestamp).toLocaleString() + " · " + row.status,
+          formatDateTime(row.timestamp) + " · " + row.status,
           row.actor_name + " · " + row.actor_id,
           row.operation +
             (row.connection_id ? " · " + row.connection_id : "") +
@@ -869,6 +1025,33 @@ $("refreshActivity").onclick = () => {
   activityOffset = 0;
   loadActivity().catch(report);
 };
+const pad2 = (n) => String(n).padStart(2, "0");
+function toLocalInputValue(date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+function applyActivityPreset(kind) {
+  const now = new Date();
+  let from = null;
+  if (kind === "hour") from = new Date(now.getTime() - 60 * 60 * 1000);
+  else if (kind === "today") {
+    from = new Date(now);
+    from.setHours(0, 0, 0, 0);
+  } else if (kind === "week") from = new Date(now.getTime() - 7 * 86400000);
+  const form = $("activityForm");
+  form.elements.from.value = from ? toLocalInputValue(from) : "";
+  form.elements.to.value = "";
+  form.requestSubmit();
+}
+for (const presetButton of document.querySelectorAll("[data-activity-preset]"))
+  presetButton.addEventListener("click", () =>
+    applyActivityPreset(presetButton.dataset.activityPreset),
+  );
+$("clearActivityFilters").onclick = () => {
+  $("activityForm").reset();
+  activityFilters = new URLSearchParams();
+  activityOffset = 0;
+  loadActivity().catch(report);
+};
 $("downloadActivity").onclick = async () => {
   const b = $("downloadActivity");
   b.disabled = true;
@@ -928,9 +1111,6 @@ const timeline = createTimeline({
   button,
   report,
 });
-function openPage(page) {
-  document.querySelector(`[data-page="${page}"]`).click();
-}
 async function openRequestTimeline(requestId) {
   openPage("activity");
   await timeline.open(requestId);
@@ -1076,7 +1256,7 @@ async function loadDashboard() {
     });
     $("dashboardSummary").textContent =
       "Updated " +
-      new Date(data.generatedAt).toLocaleString() +
+      formatDateTime(data.generatedAt) +
       ". Today uses your browser’s local timezone.";
   } catch (error) {
     if (current === dashboardGeneration)
@@ -1090,6 +1270,7 @@ async function loadDashboard() {
 $("refreshDashboard").onclick = () => loadDashboard().catch(report);
 function clearPrivateViews() {
   dashboardGeneration++;
+  lastActivated = null;
   timeline.clear();
   clearToken();
   history = [];

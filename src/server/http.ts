@@ -6,6 +6,7 @@ import { createMcp } from "./mcp.js";
 import { dirname, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import compression from "compression";
 import type { Gateway } from "../services/gateway.js";
 import type { Config } from "../config/index.js";
 import { adminRouter, bearer } from "../api/admin.js";
@@ -55,9 +56,31 @@ const uiDir = [
 if (!uiDir) throw new Error("Admin UI assets not found next to the server");
 const staticUiDir: string = uiDir;
 
+// Build a safe, actionable message from validation issues without echoing
+// raw driver errors, bodies or credentials.
+function invalidInput(error: ZodError) {
+  const details = (error.issues ?? []).slice(0, 10).map((issue) => ({
+    path: (issue.path ?? []).map((part) => String(part)).join("."),
+    message: issue.message,
+  }));
+  const summary = details
+    .slice(0, 3)
+    .map((detail) =>
+      detail.path ? `${detail.path}: ${detail.message}` : detail.message,
+    )
+    .join("; ");
+  return {
+    code: "INVALID_INPUT",
+    message: summary
+      ? `Invalid input — ${summary}`
+      : "Input validation failed.",
+    issues: details,
+  };
+}
 export function createApp(gateway: Gateway, config: Config) {
   const app = express();
   app.disable("x-powered-by");
+  app.use(compression());
   app.use((req, res, next) => {
     if (!(
       req.path === "/mcp" ||
@@ -198,7 +221,20 @@ export function createApp(gateway: Gateway, config: Config) {
       },
     });
   });
-  app.use(express.static(staticUiDir, { etag: false }));
+  app.use(
+    express.static(staticUiDir, {
+      setHeaders(res, filePath) {
+        // Fingerprinted-enough asset types may be cached briefly; HTML stays
+        // no-store so the workspace always boots the current build.
+        if (/\.(?:js|css|svg|png|ico|woff2?)$/.test(filePath))
+          res.setHeader(
+            "Cache-Control",
+            "public, max-age=300, must-revalidate",
+          );
+        else res.setHeader("Cache-Control", "no-store");
+      },
+    }),
+  );
   app.use(
     (
       error: unknown,
@@ -207,9 +243,7 @@ export function createApp(gateway: Gateway, config: Config) {
       _next: express.NextFunction,
     ) => {
       const safe =
-        error instanceof ZodError
-          ? { code: "INVALID_INPUT", message: "Input validation failed." }
-          : safeError(error);
+        error instanceof ZodError ? invalidInput(error) : safeError(error);
       const status =
         error instanceof GatewayError
           ? error.status

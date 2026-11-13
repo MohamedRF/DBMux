@@ -10,7 +10,7 @@ export const permissionDefinitions = [
   [
     "executeRoutine",
     "Execute routines",
-    "Blocked by the SQL policy; any existing flag is preserved.",
+    "Blocked by the SQL policy; cannot be granted.",
   ],
 ];
 export function presetPermissions(level) {
@@ -57,6 +57,11 @@ export function permissionEditor(form, container, changed = () => {}) {
     input.type = "checkbox";
     input.name = "permission." + key;
     input.disabled = key === "executeRoutine";
+    if (input.disabled) {
+      input.title =
+        "Execution is denied by the SQL policy and cannot be granted.";
+      label.title = input.title;
+    }
     const text = document.createElement("span");
     const strong = document.createElement("strong");
     strong.textContent = title;

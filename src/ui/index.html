@@ -3,12 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <meta
       name="description"
       content="DBMux is a self-hosted development database gateway that connects AI coding agents to Oracle and PostgreSQL under scoped, audited access."
     />
     <title>DBMux · Development gateway</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/app.js"></script>
@@ -75,11 +76,6 @@
       <symbol id="i-monitor" viewBox="0 0 24 24">
         <rect x="2.5" y="4" width="19" height="13" rx="2" />
         <path d="M8.5 21h7M12 17v4" />
-      </symbol>
-      <symbol id="i-github" viewBox="0 0 24 24">
-        <path
-          d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
-        />
       </symbol>
     </svg>
     <a class="skip-link" href="#main">Skip to main content</a>
@@ -222,21 +218,6 @@
               </button>
             </form>
             <footer class="auth-footer">
-              <p class="auth-footer-credit">
-                Developed by
-                <a
-                  class="developer-link"
-                  href="https://github.com/MohamedRF/DBMux"
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Mohamed Rasik Farid on GitHub"
-                >
-                  <svg class="icon icon-github" aria-hidden="true">
-                    <use href="#i-github" />
-                  </svg>
-                  <span class="developer-name">Mohamed Rasik Farid</span>
-                </a>
-              </p>
               <p class="auth-footer-note">
                 The session is kept in this browser tab and expires after eight
                 hours of inactivity.
@@ -249,33 +230,58 @@
       <div id="workspace" hidden>
         <nav aria-label="Workspace">
           <p class="nav-heading">Workspace</p>
-          <button data-page="dashboard" aria-current="page">
+          <button
+            data-page="dashboard"
+            aria-current="page"
+            title="Dashboard (Alt+1)"
+            aria-keyshortcuts="Alt+1"
+          >
             <svg class="icon" aria-hidden="true">
               <use href="#i-dashboard" />
             </svg>
             <span>Dashboard</span>
           </button>
-          <button data-page="connections">
+          <button
+            data-page="connections"
+            title="Connections (Alt+2)"
+            aria-keyshortcuts="Alt+2"
+          >
             <svg class="icon" aria-hidden="true">
               <use href="#i-connections" />
             </svg>
             <span>Connections</span>
           </button>
-          <button data-page="tokens">
+          <button
+            data-page="tokens"
+            title="MCP access (Alt+3)"
+            aria-keyshortcuts="Alt+3"
+          >
             <svg class="icon" aria-hidden="true"><use href="#i-tokens" /></svg>
             <span>MCP access</span>
           </button>
-          <button data-page="activity">
+          <button
+            data-page="activity"
+            title="Activity logs (Alt+4)"
+            aria-keyshortcuts="Alt+4"
+          >
             <svg class="icon" aria-hidden="true">
               <use href="#i-activity" />
             </svg>
             <span>Activity logs</span>
           </button>
-          <button data-page="audit">
+          <button
+            data-page="audit"
+            title="Database history (Alt+5)"
+            aria-keyshortcuts="Alt+5"
+          >
             <svg class="icon" aria-hidden="true"><use href="#i-audit" /></svg>
             <span>Database history</span>
           </button>
-          <button data-page="installation">
+          <button
+            data-page="installation"
+            title="MCP installation (Alt+6)"
+            aria-keyshortcuts="Alt+6"
+          >
             <svg class="icon" aria-hidden="true"><use href="#i-install" /></svg>
             <span>MCP installation</span>
           </button>
@@ -287,7 +293,11 @@
           </a>
         </nav>
 
-        <div class="overview" aria-label="Workspace overview">
+        <div
+          id="workspaceOverview"
+          class="overview"
+          aria-label="Workspace overview"
+        >
           <div class="stat">
             <p class="stat-label">Connections</p>
             <p class="stat-value"><span id="connectionCount">0</span></p>
@@ -480,8 +490,8 @@
                 /></label>
               </div>
             </fieldset>
-            <fieldset>
-              <legend>Access &amp; safeguards</legend>
+            <details class="form-section" open>
+              <summary>Access &amp; safeguards</summary>
               <div class="form-grid">
                 <label class="field"
                   ><span>Allowed schemas, comma-separated</span
@@ -491,7 +501,7 @@
                     placeholder="APPLICATION_DEV or public"
                 /></label>
                 <label class="field"
-                  ><span>Access</span
+                  ><span>Permission preset</span
                   ><select name="access">
                     <option value="read-only">Read Only</option>
                     <option value="development-write">Development Write</option>
@@ -503,44 +513,49 @@
                   <legend>Connection permission grants</legend>
                   <div id="connectionPermissions" class="permission-grid"></div>
                 </fieldset>
-                <label class="field"
-                  ><span>Additional protected schemas, comma-separated</span
-                  ><input name="protectedSchemas"
-                /></label>
-                <label class="checkbox"
-                  ><input
-                    name="requireWhereForUpdate"
-                    type="checkbox"
-                    checked
-                  /><span>Require WHERE for UPDATE</span></label
-                >
-                <label class="checkbox"
-                  ><input
-                    name="requireWhereForDelete"
-                    type="checkbox"
-                    checked
-                  /><span>Require WHERE for DELETE</span></label
-                >
                 <label class="checkbox"
                   ><input name="enabled" type="checkbox" /><span
                     >Enable MCP</span
                   ></label
                 >
-                <label class="field"
-                  ><span>Disabled tool names, comma-separated</span
-                  ><input name="disabledTools"
-                /></label>
-                <label class="field"
-                  ><span>Blocked tables, comma-separated</span
-                  ><input name="blockedTables"
-                /></label>
-                <label class="field"
-                  ><span>Blocked columns, comma-separated</span
-                  ><input name="blockedColumns"
-                /></label>
+                <details class="form-section form-section-advanced">
+                  <summary>Advanced safeguards</summary>
+                  <div class="form-grid">
+                    <label class="field"
+                      ><span>Additional protected schemas, comma-separated</span
+                      ><input name="protectedSchemas"
+                    /></label>
+                    <label class="checkbox"
+                      ><input
+                        name="requireWhereForUpdate"
+                        type="checkbox"
+                        checked
+                      /><span>Require WHERE for UPDATE</span></label
+                    >
+                    <label class="checkbox"
+                      ><input
+                        name="requireWhereForDelete"
+                        type="checkbox"
+                        checked
+                      /><span>Require WHERE for DELETE</span></label
+                    >
+                    <label class="field"
+                      ><span>Disabled tool names, comma-separated</span
+                      ><input name="disabledTools"
+                    /></label>
+                    <label class="field"
+                      ><span>Blocked tables, comma-separated</span
+                      ><input name="blockedTables"
+                    /></label>
+                    <label class="field"
+                      ><span>Blocked columns, comma-separated</span
+                      ><input name="blockedColumns"
+                    /></label>
+                  </div>
+                </details>
               </div>
-            </fieldset>
-            <div class="form-actions">
+            </details>
+            <div class="form-actions form-actions-sticky">
               <button class="primary" type="submit">Save connection</button>
               <button id="resetConnection" class="secondary" type="button">
                 New connection
@@ -608,7 +623,7 @@
               <div id="tokenConnectionPicker"></div>
             </fieldset>
             <label class="field"
-              ><span>Permissions</span
+              ><span>Permission preset</span
               ><select name="access">
                 <option value="read-only">Read Only</option>
                 <option value="development-write">Development Write</option>
@@ -646,14 +661,21 @@
             Choose explicit connection access. Permissions also respect each
             connection’s policy.
           </p>
-          <div id="tokenReveal" class="callout" hidden>
+          <div id="tokenReveal" class="callout token-reveal" hidden>
             <h2>Your new token</h2>
             <p>
               Copy it now and deliver it privately to its owner. Leaving this
               page clears it; it cannot be retrieved later.
             </p>
-            <pre id="newToken"></pre>
-            <button id="copyToken" disabled>Copy token</button>
+            <pre id="newToken" tabindex="-1"></pre>
+            <div class="form-actions">
+              <button id="copyToken" class="primary" disabled>
+                Copy token
+              </button>
+              <button id="dismissToken" class="secondary" type="button">
+                I finished — dismiss
+              </button>
+            </div>
           </div>
         </section>
 
@@ -669,15 +691,22 @@
           </header>
           <form id="auditForm">
             <label class="field"
-              ><span>Connection ID</span
-              ><input name="connectionId" required list="connectionOptions"
-            /></label>
-            <label class="field"
-              ><span>Offset</span
-              ><input name="offset" type="number" value="0" min="0"
-            /></label>
+              ><span>Connection</span
+              ><select name="connectionId" id="auditConnection" required>
+                <option value="">Choose a connection…</option>
+              </select></label
+            >
             <button class="primary" type="submit">Load history</button>
           </form>
+          <div class="audit-pager" role="group" aria-label="History pages">
+            <button id="auditPrevious" class="secondary" type="button" disabled>
+              Previous
+            </button>
+            <span id="auditPager" role="status">Offset 0</span>
+            <button id="auditNext" class="secondary" type="button" disabled>
+              Next
+            </button>
+          </div>
           <label class="field field-search"
             ><span>Filter loaded history</span
             ><input id="auditSearch" placeholder="Project, branch, SQL, status"
@@ -773,6 +802,29 @@
             <label class="field"
               ><span>To</span><input type="datetime-local" name="to"
             /></label>
+            <div
+              class="activity-presets"
+              role="group"
+              aria-label="Quick filters"
+            >
+              <span class="activity-presets-label">Quick ranges</span>
+              <button type="button" class="chip" data-activity-preset="hour">
+                Last hour
+              </button>
+              <button type="button" class="chip" data-activity-preset="today">
+                Today
+              </button>
+              <button type="button" class="chip" data-activity-preset="week">
+                Last 7 days
+              </button>
+              <button
+                type="button"
+                class="chip chip-quiet"
+                id="clearActivityFilters"
+              >
+                Clear filters
+              </button>
+            </div>
             <button class="primary" type="submit">Apply filters</button>
           </form>
           <div class="toolbar">
@@ -910,6 +962,30 @@ Use DBMux to call db_connections and list the development connections available 
       </div>
 
       <datalist id="connectionOptions"></datalist>
+
+      <div
+        id="confirmDialog"
+        class="confirm-dialog"
+        hidden
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirmTitle"
+        aria-describedby="confirmBody"
+      >
+        <div class="confirm-backdrop" data-confirm-cancel></div>
+        <div class="confirm-panel">
+          <h2 id="confirmTitle">Confirm action</h2>
+          <p id="confirmBody"></p>
+          <div class="form-actions confirm-actions">
+            <button id="confirmCancel" class="secondary" type="button">
+              Cancel
+            </button>
+            <button id="confirmAccept" class="danger-solid" type="button">
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
 
       <footer class="site-footer">
         <div class="site-footer-brand">

@@ -1,19 +1,46 @@
-# DBMux
+<div align="center">
 
-### Your development databases, connected to your AI coding workflow.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg" />
+  <img src="docs/assets/banner-light.svg" alt="DBMux — development databases, connected to your AI coding workflow" width="860" />
+</picture>
 
-[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js 24](https://img.shields.io/badge/Node.js-24_LTS-339933.svg)](package.json)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)](tsconfig.json)
-[![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-6D28D9.svg)](docs/mcp-clients.md)
+**Your development databases, connected to your AI coding workflow.**
 
-**DBMux is a self-hosted MCP gateway for PostgreSQL and Oracle development databases.** Give your coding agent schema context, bounded SQL queries, reviewed changes and an audit trail through one endpoint. Keep database credentials on your server and give each developer a personal, scoped, revocable token.
+DBMux is a self-hosted MCP gateway for PostgreSQL and Oracle development databases. It gives coding agents schema context, bounded SQL queries, reviewed changes and an audit trail through one authenticated endpoint — while credentials stay on your server and every developer gets a personal, scoped, revocable token.
 
-Use it to understand an unfamiliar schema, build a feature against a shared development database, or review the database changes made during a coding session.
+[![CI](https://github.com/MohamedRF/DBMux/actions/workflows/ci.yml/badge.svg)](https://github.com/MohamedRF/DBMux/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js 24 LTS](https://img.shields.io/badge/Node.js-24_LTS-339933.svg)](package.json)
+[![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)](tsconfig.json)
+[![MCP Streamable HTTP](https://img.shields.io/badge/MCP-Streamable_HTTP-6D28D9.svg)](docs/mcp-clients.md)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[Quick start](#quick-start) · [Developer setup](#connect-your-coding-client) · [Tools](#tools-at-a-glance) · [Documentation](#documentation) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [Client setup](#connect-your-coding-client) · [Tools](#tools-at-a-glance) · [Documentation](#documentation) · [Contributing](CONTRIBUTING.md)
 
-> **Project status:** early development, version 0.1.0. PostgreSQL has live integration coverage. The Oracle Thin adapter is implemented, but live Oracle 19c acceptance remains outstanding. Production use requires Oracle acceptance where applicable and a deployment-specific security review. See [verification and limitations](docs/verification.md).
+</div>
+
+> [!IMPORTANT]
+> **Project status — early development, version 0.1.0.** PostgreSQL has live integration coverage. The Oracle Thin adapter is implemented, but live Oracle 19c acceptance remains outstanding. Production use requires Oracle acceptance where applicable and a deployment-specific security review. See [verification and limitations](docs/verification.md).
+
+<details>
+<summary><strong>Table of contents</strong></summary>
+
+- [Why DBMux?](#why-dbmux)
+- [How it works](#how-it-works)
+- [Inside the workspace](#inside-the-workspace)
+- [Quick start](#quick-start)
+- [Connect your coding client](#connect-your-coding-client)
+- [Put it to work](#put-it-to-work)
+- [Tools at a glance](#tools-at-a-glance)
+- [Database support and boundaries](#database-support-and-boundaries)
+- [Configuration and operations](#configuration-and-operations)
+- [Troubleshooting](#troubleshooting)
+- [Develop and contribute](#develop-and-contribute)
+- [Documentation](#documentation)
+- [License](#license)
+
+</details>
 
 ## Why DBMux?
 
@@ -23,6 +50,8 @@ Use it to understand an unfamiliar schema, build a feature against a shared deve
 - **Keep the context behind a change.** Capture schema snapshots, compare definitions, attach project/branch context and export recorded SQL with its bind manifest.
 - **Operate from one browser workspace.** Manage connections, tokens, effective access, activity and request timelines.
 - **Run on your own infrastructure.** A Node.js service, SQLite metadata store and optional Docker deployment; developers need no local database drivers.
+
+Use it to understand an unfamiliar schema, build a feature against a shared development database, or review the database changes made during a coding session.
 
 ## How it works
 
@@ -40,9 +69,41 @@ Administrators manage database credentials. Developers use the authenticated `/m
 
 DBMux supplements least-privilege database accounts and network isolation. Schema restrictions and SQL classification cannot eliminate indirect effects from database objects such as triggers or functions. Read the [security model](docs/security.md) before granting write access.
 
+## Inside the workspace
+
+Screenshots captured from an isolated demo instance with synthetic data.
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/assets/screenshots/dashboard.png" alt="Gateway dashboard showing connection, token and activity metrics" width="420" /><br />
+      <sub><b>Gateway dashboard</b> — requests, failures, expiring tokens and seven days of activity</sub>
+    </td>
+    <td align="center">
+      <img src="docs/assets/screenshots/connections.png" alt="Connections list showing an MCP-enabled PostgreSQL connection" width="420" /><br />
+      <sub><b>Connections</b> — one dedicated target per database, MCP toggled per connection</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/assets/screenshots/connection-form.png" alt="Connection details form for a PostgreSQL development database" width="420" /><br />
+      <sub><b>Connection details</b> — engine, pool and TLS settings; passwords are never returned</sub>
+    </td>
+    <td align="center">
+      <img src="docs/assets/screenshots/permission-grants.png" alt="Access and safeguards section with explicit permission grants and Enable MCP" width="420" /><br />
+      <sub><b>Access &amp; safeguards</b> — allowed schemas and explicit per-connection grants</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/assets/screenshots/installation.png" alt="MCP installation page with the endpoint, token environment setup and copy buttons for coding clients" width="560" /><br />
+  <sub><b>MCP installation</b> — endpoint, token environment and client-specific setup with copy buttons</sub>
+</p>
+
 ## Quick start
 
-Already have a team endpoint and personal token? Go directly to [developer setup](#connect-your-coding-client).
+Already have a team endpoint and a personal token? Skip to [developer setup](#connect-your-coding-client).
 
 To run your own instance, you need **Node.js 24 LTS** (24.15.0 or later, below 25), **npm**, **Git**, and access to a development database. Docker with Compose is optional. DBMux does not provision your application database.
 
@@ -275,18 +336,27 @@ Report reproducible bugs through [GitHub issues](https://github.com/MohamedRF/DB
 
 ## Documentation
 
-| Guide                                                                          | What you will find                                                                                                                  |
-| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [Developer setup and agent playbook](DEVELOPER.md)                             | Client installation for Codex, Claude Code, Cursor, VS Code, Antigravity, Kilo Code and Cline, plus a copy-paste `AGENTS.md` block. |
-| [Installation and networking](docs/installation.md)                            | Reverse proxies, Docker networking, permissions, backup and shutdown.                                                               |
-| [MCP clients](docs/mcp-clients.md)                                             | Client configuration and the local STDIO bridge.                                                                                    |
-| [Administrator workspace](docs/admin-workspace.md)                             | Tokens, effective access, dashboard, activity and request timelines.                                                                |
-| [Security model](docs/security.md)                                             | Encryption, identities, SQL policy and trust boundaries.                                                                            |
-| [Architecture](ARCHITECTURE.md) · [Implementation guide](docs/architecture.md) | Service boundaries and how to extend the project.                                                                                   |
-| [PostgreSQL](docs/postgresql.md) · [Oracle](docs/oracle.md)                    | Engine-specific behavior and acceptance requirements.                                                                               |
-| [Verification](docs/verification.md)                                           | Recorded verification and outstanding limitations.                                                                                  |
-| [Contributing](CONTRIBUTING.md)                                                | Development workflow and review expectations.                                                                                       |
+| Guide                                                                          | What you will find                                                                           |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| [MCP clients](docs/mcp-clients.md)                                             | Client configuration for Codex, Claude Code, Cursor and VS Code, and the local STDIO bridge. |
+| [Installation and networking](docs/installation.md)                            | Reverse proxies, Docker networking, permissions, backup and shutdown.                        |
+| [Administrator workspace](docs/admin-workspace.md)                             | Tokens, effective access, dashboard, activity and request timelines.                         |
+| [Security model](docs/security.md)                                             | Encryption, identities, SQL policy and trust boundaries.                                     |
+| [Architecture](ARCHITECTURE.md) · [Implementation guide](docs/architecture.md) | Service boundaries and how to extend the project.                                            |
+| [PostgreSQL](docs/postgresql.md) · [Oracle](docs/oracle.md)                    | Engine-specific behavior and acceptance requirements.                                        |
+| [Verification](docs/verification.md)                                           | Recorded verification and outstanding limitations.                                           |
+| [Contributing](CONTRIBUTING.md)                                                | Development workflow and review expectations.                                                |
 
 ## License
 
 DBMux is available under the [MIT License](LICENSE). You can use, modify and distribute it, including in commercial projects, under the license terms.
+
+<div align="center">
+
+<img src="docs/assets/logo.svg" alt="DBMux logo" width="44" />
+
+Built for development teams who trust their AI coding agents with real databases.
+
+[Security model](docs/security.md) · [Contributing](CONTRIBUTING.md) · [Report a vulnerability](SECURITY.md) · [MIT License](LICENSE)
+
+</div>

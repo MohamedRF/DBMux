@@ -6,3 +6,6 @@ secrets/
 *.log
 coverage/
 dbmux_data/
+# Private internal setup notes (contain internal network details)
+DEVELOPER.md
+DEVELOPER copy.md

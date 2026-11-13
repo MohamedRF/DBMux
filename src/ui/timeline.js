@@ -1,3 +1,4 @@
+import { formatDateTime } from "./format.js";
 export function hasRequestTimeline(requestId) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     requestId,
@@ -43,7 +44,7 @@ export function createTimeline({ root, api, button, report }) {
         const card = document.createElement("div");
         card.className = "audit-event";
         const title = document.createElement("p");
-        title.textContent = `SQL audit #${audit.id} · ${audit.tool} · ${audit.connection_id} · ${audit.status} · ${new Date(audit.timestamp).toLocaleString()}`;
+        title.textContent = `SQL audit #${audit.id} · ${audit.tool} · ${audit.connection_id} · ${audit.status} · ${formatDateTime(audit.timestamp)}`;
         card.append(
           title,
           button("View SQL audit", async () => {
@@ -67,7 +68,7 @@ export function createTimeline({ root, api, button, report }) {
         const context = document.createElement("p");
         context.textContent = `${event.kind} · ${event.actor_name} (${event.actor_id}) · ${event.source} · ${event.connection_id ?? "Gateway"}`;
         const outcome = document.createElement("small");
-        outcome.textContent = `${new Date(event.timestamp).toLocaleString()} · ${event.status} · ${event.duration_ms} ms${event.http_status ? " · HTTP " + event.http_status : ""}${event.error_code ? " · " + event.error_code : ""}`;
+        outcome.textContent = `${formatDateTime(event.timestamp)} · ${event.status} · ${event.duration_ms} ms${event.http_status ? " · HTTP " + event.http_status : ""}${event.error_code ? " · " + event.error_code : ""}`;
         item.append(title, context, outcome);
         for (const audit of data.audits.filter(
           (audit) => audit.activity_id === event.id,

@@ -17,8 +17,9 @@
     "dbmcp": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.3.1",
     "@modelcontextprotocol/node": "^2.1.1",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "compression": "^1.8.2",
     "express": "^5.1.0",
     "oracledb": "^6.10.0",
     "pg": "^8.16.3",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.3.1",
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.3",
     "@types/node": "^24.0.0",
     "@types/oracledb": "^6.10.0",

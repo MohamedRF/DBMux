@@ -1,4 +1,5 @@
 import { hasRequestTimeline } from "./timeline.js";
+import { formatDateTime } from "./format.js";
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -80,7 +81,7 @@ export function renderDashboard(
     const row = element("div", undefined, "dashboard-row");
     row.append(
       element("strong", token.name),
-      element("small", new Date(token.expiresAt).toLocaleString()),
+      element("small", formatDateTime(token.expiresAt)),
       button("Review access", () => editToken(token.id)),
     );
     expiry.append(row);
@@ -110,7 +111,7 @@ export function renderDashboard(
       row.append(
         element(
           "small",
-          new Date(result.checkedAt).toLocaleString() +
+          formatDateTime(result.checkedAt) +
             (result.errorCode ? " · " + result.errorCode : "") +
             (result.latencyMs !== undefined
               ? ` · ${Math.round(result.latencyMs)} ms`
