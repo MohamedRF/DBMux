@@ -6,10 +6,16 @@ import type {
   QueryResult,
   StatementResult,
   TransactionHandle,
+  SessionHandle,
   CatalogKind,
   CatalogFilter,
 } from "../adapter.js";
-import { normalize, quoteIdentifier } from "../adapter.js";
+import {
+  normalize,
+  quoteIdentifier,
+  clampLimit,
+  clampOffset,
+} from "../adapter.js";
 import { oracleCatalog } from "./oracle.metadata.js";
 import { classify } from "../../security/sql-policy.js";
 
@@ -74,6 +80,7 @@ export class OracleAdapter implements DatabaseAdapter {
     limit: number,
   ): Promise<QueryResult> {
     const start = performance.now();
+    const lim = clampLimit(limit, 100, 1000);
     client.callTimeout = this.querySeconds * 1000;
     const r = await client.execute<Record<string, unknown>>(
       sql.replace(/;\s*$/, ""),
@@ -89,7 +96,7 @@ export class OracleAdapter implements DatabaseAdapter {
     );
     const rs = r.resultSet;
     try {
-      const raw = rs ? await rs.getRows(limit + 1) : [];
+      const raw = rs ? await rs.getRows(lim + 1) : [];
       const rows = [];
       for (const row of raw) {
         const safe: Record<string, unknown> = {};
@@ -104,7 +111,7 @@ export class OracleAdapter implements DatabaseAdapter {
             await v.close();
           } else safe[k] = normalize(v);
         }
-        if (rows.length < limit) rows.push(safe);
+        if (rows.length < lim) rows.push(safe);
       }
       return {
         columns: (r.metaData ?? []).map((m) => ({
@@ -114,7 +121,7 @@ export class OracleAdapter implements DatabaseAdapter {
         rows,
         rowCount: rows.length,
         executionMs: performance.now() - start,
-        truncated: raw.length > limit,
+        truncated: raw.length > lim,
       };
     } finally {
       await rs?.close();
@@ -126,13 +133,13 @@ export class OracleAdapter implements DatabaseAdapter {
     binds: Binds,
   ) {
     const start = performance.now();
+    const analysis = classify(sql, "oracle");
     const ddl =
-      classify(sql, "oracle").category.startsWith("DDL") ||
-      classify(sql, "oracle").category === "TRUNCATE";
+      analysis.category.startsWith("DDL") || analysis.category === "TRUNCATE";
     client.callTimeout = (ddl ? this.ddlSeconds : this.querySeconds) * 1000;
     const r = await client.execute(
       ["PROCEDURE", "FUNCTION", "TRIGGER", "PACKAGE"].includes(
-        classify(sql, "oracle").objectType ?? "",
+        analysis.objectType ?? "",
       )
         ? sql
         : sql.replace(/;\s*$/, ""),
@@ -189,6 +196,26 @@ export class OracleAdapter implements DatabaseAdapter {
       rollback: () => finish(false),
     };
   }
+  async beginSession(): Promise<SessionHandle> {
+    const client = await this.acquire();
+    client.callTimeout = this.querySeconds * 1000;
+    const query = (sql: string, binds: Binds, limit: number) =>
+      this.query(client, sql, binds, limit);
+    const execute = async (sql: string, binds: Binds) => {
+      const r = await this.statement(client, sql, binds);
+      // Session statements commit individually (autocommit); DDL commits implicitly.
+      if (!r.implicitCommit) await client.commit();
+      return r;
+    };
+    return {
+      query,
+      execute,
+      close: async () => {
+        await client.rollback().catch(() => undefined);
+        await client.close();
+      },
+    };
+  }
   async catalog(kind: CatalogKind, filter: CatalogFilter) {
     const binds: Record<string, string | number | boolean | null> = {};
     const conditions: string[] = [];
@@ -231,9 +258,9 @@ export class OracleAdapter implements DatabaseAdapter {
             ? '"schema","name","ordinal_position"'
             : '"schema","name"';
     const r = await this.executeQuery(
-      `SELECT ${[...new Set([...oracleCatalog[kind].matchAll(/AS "([^"]+)"/g)].map((m) => 'catalog."' + m[1] + '"'))].join(",")} FROM (${oracleCatalog[kind]}) catalog WHERE ${conditions.join(" AND ")} ORDER BY ${order} OFFSET ${filter.offset ?? 0} ROWS`,
+      `SELECT ${[...new Set([...oracleCatalog[kind].matchAll(/AS "([^"]+)"/g)].map((m) => 'catalog."' + m[1] + '"'))].join(",")} FROM (${oracleCatalog[kind]}) catalog WHERE ${conditions.join(" AND ")} ORDER BY ${order} OFFSET ${clampOffset(filter.offset)} ROWS`,
       binds,
-      filter.limit ?? 100,
+      clampLimit(filter.limit, 100, 1000),
     );
     return r;
   }

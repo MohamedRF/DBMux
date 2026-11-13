@@ -37,6 +37,7 @@ test("portal token lifecycle, immediate scope changes and secret-safe downloadab
     QUERY_TIMEOUT_SECONDS: 30,
     DDL_TIMEOUT_SECONDS: 60,
     TRANSACTION_TIMEOUT_SECONDS: 300,
+    DB_SESSION_IDLE_TTL_SECONDS: 1800,
   };
   auth.setup("Administrator", "synthetic-administrator-password");
   const session = auth.login(

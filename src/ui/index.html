@@ -339,7 +339,9 @@
           </header>
           <div class="callout">
             Get started: save a connection → test connectivity → enable MCP →
-            issue a developer token.
+            issue a developer token. Badges show the last recorded test: green =
+            passed, red = failed (with the ORA/SQLSTATE code), grey = not tested
+            yet.
             <a
               href="/guide.html#administrators"
               target="_blank"
@@ -394,8 +396,16 @@
                 /></label>
                 <label class="field"
                   ><span>Service / database</span
-                  ><input name="database" required
-                /></label>
+                  ><input
+                    name="database"
+                    required
+                    placeholder="ORCLPDB1 or devdb"
+                  /><span class="field-hint"
+                    >Oracle: the <strong>service name</strong> (most 12c+
+                    installs) or, with SID mode, the instance SID. PostgreSQL:
+                    the database name.</span
+                  ></label
+                >
                 <label class="field"
                   ><span>Username</span
                   ><input name="username" required autocomplete="off"
@@ -414,16 +424,40 @@
               <div class="form-grid">
                 <label class="field"
                   ><span>Custom Oracle connect string</span
-                  ><input name="connectString"
-                /></label>
+                  ><input
+                    name="connectString"
+                    placeholder="host:1521/SERVICE_NAME or (DESCRIPTION=...)"
+                  /><span class="field-hint"
+                    >Leave empty to build one from host, port, service /
+                    instance SID or full TNS <code>DESCRIPTION</code>. >Checked
+                    connectivity before saving is recommended.</span
+                  ></label
+                >
                 <label class="checkbox"
                   ><input name="sid" type="checkbox" /><span
-                    >Oracle SID mode</span
+                    >Oracle SID mode (instance SID instead of service
+                    name)</span
                   ></label
                 >
                 <label class="checkbox"
                   ><input name="ssl" type="checkbox" /><span
                     >PostgreSQL TLS (certificate verified)</span
+                  ></label
+                >
+                <label class="field ssl-ca" hidden
+                  ><span>PostgreSQL TLS CA certificate (PEM)</span
+                  ><textarea
+                    name="sslCa"
+                    rows="4"
+                    spellcheck="false"
+                    autocomplete="off"
+                    placeholder="-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----"
+                  ></textarea
+                  ><span class="field-hint"
+                    >Optional PEM for a private certificate authority. Leave
+                    empty to use the system trust store.</span
                   ></label
                 >
                 <label class="field"
@@ -549,6 +583,9 @@
                 <option value="revoked">Revoked</option>
               </select></label
             >
+            <button id="removeInactiveTokens" class="secondary" type="button">
+              Remove inactive
+            </button>
           </div>
           <div id="tokenList"></div>
           <h2 id="tokenHeading">Create a developer token</h2>

@@ -22,6 +22,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         .min(1)
         .max(3600)
         .default(300),
+      DB_SESSION_IDLE_TTL_SECONDS: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(86400)
+        .default(1800),
     })
     .parse(env);
   const key = (

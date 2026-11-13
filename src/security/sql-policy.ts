@@ -120,6 +120,271 @@ export function tokens(sql: string): string[] {
   }
   return out;
 }
+// DBX_MCP_ALLOW_WRITES-style kill switch. A value of "0" or "false"
+// (case-insensitive) forces this process to read-only, even when the saved
+// central policy grants more. Any other value never widens the saved policy.
+export function readOnlyForced(env: NodeJS.ProcessEnv = process.env) {
+  const v = (env.DB_MCP_READ_ONLY ?? "").trim().toLowerCase();
+  return v === "0" || v === "false";
+}
+// Dialect-aware script splitting for batch execution. Mirrors the lexical
+// rules of tokens() and fails closed on anything it cannot model. PL/SQL
+// definitions are not split at inner semicolons: a leading
+// CREATE [OR REPLACE] [NON]EDITIONABLE PROCEDURE|FUNCTION|TRIGGER|PACKAGE
+// header switches the segment into routine mode, where BEGIN/DECLARE/IF/
+// LOOP/CASE open depth and END closes it; a semicolon at depth zero still
+// terminates the statement (needed for triggers without a PL/SQL block and
+// for PostgreSQL dollar-quoted bodies). Keep in sync with tokens().
+export function splitStatements(sql: string): string[] {
+  const out: string[] = [];
+  let stmtStart = 0;
+  let i = 0;
+  let routine = false;
+  let depth = 0;
+  let prevWord: string | undefined;
+  const words: string[] = [];
+  const routineHeader = (candidate: string[]) => {
+    let index = 0;
+    if (candidate[index] !== "CREATE") return false;
+    index++;
+    if (candidate[index] === "OR" && candidate[index + 1] === "REPLACE")
+      index += 2;
+    if (
+      candidate[index] === "EDITIONABLE" ||
+      candidate[index] === "NONEDITIONABLE"
+    )
+      index++;
+    return ["PROCEDURE", "FUNCTION", "TRIGGER", "PACKAGE"].includes(
+      candidate[index] ?? "",
+    );
+  };
+  const cut = (segmentEnd: number, nextStart: number) => {
+    const segment = sql.slice(stmtStart, segmentEnd).trim();
+    // segments made only of comments carry no statement; dropping them keeps
+    // trailing comments from tripping batch policy checks.
+    if (segment && tokens(segment).length) out.push(segment);
+    stmtStart = nextStart;
+    routine = false;
+    depth = 0;
+    prevWord = undefined;
+    words.length = 0;
+  };
+  while (i < sql.length) {
+    const c = sql[i]!;
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    if (sql.startsWith("--", i)) {
+      const end = sql.indexOf("\n", i + 2);
+      i = end < 0 ? sql.length : end + 1;
+      continue;
+    }
+    if (sql.startsWith("/*", i)) {
+      let nesting = 1;
+      i += 2;
+      while (i < sql.length && nesting) {
+        if (sql.startsWith("/*", i)) {
+          nesting++;
+          i += 2;
+        } else if (sql.startsWith("*/", i)) {
+          nesting--;
+          i += 2;
+        } else i++;
+      }
+      if (nesting)
+        throw new GatewayError("INVALID_SQL", "Unclosed SQL comment");
+      continue;
+    }
+    if (c === "'") {
+      i++;
+      let closed = false;
+      while (i < sql.length) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") {
+            i += 2;
+            continue;
+          }
+          i++;
+          closed = true;
+          break;
+        }
+        if (sql[i] === "\\")
+          throw new GatewayError(
+            "UNSUPPORTED_SQL",
+            "Backslash string escapes are not accepted",
+          );
+        i++;
+      }
+      if (!closed)
+        throw new GatewayError("INVALID_SQL", "Unclosed SQL literal");
+      continue;
+    }
+    if (c === '"') {
+      let closed = false;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === '"') {
+          if (sql[i + 1] === '"') {
+            i += 2;
+            continue;
+          }
+          i++;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed)
+        throw new GatewayError(
+          "UNSUPPORTED_SQL",
+          "Unsupported quoted identifier",
+        );
+      continue;
+    }
+    const dollar = sql.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)?.[0];
+    if (dollar) {
+      const end = sql.indexOf(dollar, i + dollar.length);
+      if (end < 0)
+        throw new GatewayError("INVALID_SQL", "Unclosed dollar quote");
+      i = end + dollar.length;
+      continue;
+    }
+    const word = sql.slice(i).match(/^[A-Za-z_][A-Za-z0-9_$#]*/)?.[0];
+    if (word) {
+      const up = word.toUpperCase();
+      if (!routine && routineHeader([...words, up])) {
+        routine = true;
+        // Package specs contain PROCEDURE/FUNCTION signatures terminated by
+        // semicolons; one extra depth level keeps them from splitting.
+        depth = up === "PACKAGE" ? 1 : 0;
+        words.push(up);
+        prevWord = up;
+        i += word.length;
+        continue;
+      }
+      words.push(up);
+      if (routine) {
+        if (
+          ["BEGIN", "DECLARE", "IF", "LOOP", "CASE"].includes(up) &&
+          prevWord !== "END"
+        )
+          depth++;
+        else if (up === "END" && depth > 0) depth--;
+        prevWord = up;
+      }
+      i += word.length;
+      continue;
+    }
+    if (c === ";") {
+      if (!routine || depth === 0) cut(i, i + 1);
+      i++;
+      continue;
+    }
+    i++;
+  }
+  cut(sql.length, sql.length);
+  return out;
+}
+// Detect bind placeholders outside strings/comments/dollar quotes/quoted
+// identifiers. Used to reject parameterized scripts in batch execution,
+// where no per-statement binds exist. $n (PostgreSQL) and :name (Oracle,
+// not followed by : for PostgreSQL :: casts) are reported.
+export function usesBindPlaceholders(sql: string): boolean {
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i]!;
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    if (sql.startsWith("--", i)) {
+      const end = sql.indexOf("\n", i + 2);
+      i = end < 0 ? sql.length : end + 1;
+      continue;
+    }
+    if (sql.startsWith("/*", i)) {
+      let nesting = 1;
+      i += 2;
+      while (i < sql.length && nesting) {
+        if (sql.startsWith("/*", i)) {
+          nesting++;
+          i += 2;
+        } else if (sql.startsWith("*/", i)) {
+          nesting--;
+          i += 2;
+        } else i++;
+      }
+      if (nesting)
+        throw new GatewayError("INVALID_SQL", "Unclosed SQL comment");
+      continue;
+    }
+    if (c === "'") {
+      i++;
+      let closed = false;
+      while (i < sql.length) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") {
+            i += 2;
+            continue;
+          }
+          i++;
+          closed = true;
+          break;
+        }
+        if (sql[i] === "\\")
+          throw new GatewayError(
+            "UNSUPPORTED_SQL",
+            "Backslash string escapes are not accepted",
+          );
+        i++;
+      }
+      if (!closed)
+        throw new GatewayError("INVALID_SQL", "Unclosed SQL literal");
+      continue;
+    }
+    if (c === '"') {
+      let closed = false;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === '"') {
+          if (sql[i + 1] === '"') {
+            i += 2;
+            continue;
+          }
+          i++;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed)
+        throw new GatewayError(
+          "UNSUPPORTED_SQL",
+          "Unsupported quoted identifier",
+        );
+      continue;
+    }
+    const dollar = sql.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)?.[0];
+    if (dollar) {
+      const end = sql.indexOf(dollar, i + dollar.length);
+      if (end < 0)
+        throw new GatewayError("INVALID_SQL", "Unclosed dollar quote");
+      i = end + dollar.length;
+      continue;
+    }
+    if (c === "$" && /\d/.test(sql[i + 1] ?? "")) return true;
+    if (c === ":") {
+      if (sql[i + 1] === ":") {
+        i += 2;
+        continue;
+      }
+      if (/[A-Za-z_]/.test(sql[i + 1] ?? "")) return true;
+    }
+    i++;
+  }
+  return false;
+}
 export function classify(
   sql: string,
   engine?: "oracle" | "postgres",

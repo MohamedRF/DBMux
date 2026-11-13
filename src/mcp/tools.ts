@@ -8,7 +8,9 @@ import { trackTool } from "../services/activity.js";
 const connectionInput = { connectionId: z.string().min(1).max(64) };
 const identifier = z.string().regex(/^[A-Za-z_][A-Za-z0-9_$#]*$/);
 const page = {
-  limit: z.number().int().min(1).max(1000).default(100),
+  // Out-of-range limits are clamped to 1..1000 downstream (adapters and
+  // catalog reads), not rejected.
+  limit: z.number().default(100),
   offset: z.number().int().min(0).max(1000000).default(0),
 };
 const context = z.record(z.string().max(32), z.string().max(200)).default({});
@@ -26,6 +28,7 @@ const sqlInput = {
   sql: z.string().min(1).max(100000),
   parameters,
   context,
+  sessionId: z.uuid().optional(),
 };
 const result = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
@@ -251,7 +254,7 @@ export function registerTools(
   );
   tool(
     "db_query",
-    "Run a bounded SELECT with binds. Default 100 rows, maximum 1000. Modifications and unknown SQL are rejected.",
+    "Run a bounded SELECT with binds. Default 100 rows, maximum 1000 (out-of-range limits are clamped). Modifications and unknown SQL are rejected. Pass sessionId from db_open_session to run on a pinned connection.",
     { ...sqlInput, limit: page.limit },
     (a) =>
       gateway.run(
@@ -266,7 +269,7 @@ export function registerTools(
   );
   tool(
     "db_execute",
-    "Execute one allowed DML/DDL statement through policy and audit. High-risk SQL requires prepare/confirm.",
+    "Execute one allowed DML/DDL statement through policy and audit. High-risk SQL requires prepare/confirm. Pass sessionId from db_open_session to run on a pinned connection.",
     sqlInput,
     (a) =>
       gateway.run(
@@ -297,6 +300,33 @@ export function registerTools(
           a.context,
         ),
     );
+  tool(
+    "db_execute_batch",
+    "Split a SQL script with the dialect-aware parser and execute the statements in order through central policy and audit; one result per statement. High-risk statements and stored definitions are rejected before anything runs. Pass useTransaction to run the whole batch atomically (PostgreSQL; Oracle accepts SELECT/INSERT/UPDATE/DELETE only), or continueOnError to keep going after a statement fails (cannot be combined with useTransaction). READ statements return rows; bind placeholders are not supported — use db_execute for parameterized SQL.",
+    {
+      ...connectionInput,
+      script: z.string().min(1).max(1000000),
+      useTransaction: z.boolean().default(false),
+      continueOnError: z.boolean().default(false),
+      maxRows: z.number().default(100),
+      sessionId: z.uuid().optional(),
+      context,
+    },
+    (a) =>
+      gateway.batch(
+        identity,
+        a.connectionId,
+        "db_execute_batch",
+        a.script,
+        {
+          useTransaction: a.useTransaction,
+          continueOnError: a.continueOnError,
+          maxRows: a.maxRows,
+          sessionId: a.sessionId,
+        },
+        a.context,
+      ),
+  );
   const ddl: Record<string, [string, string]> = {};
   for (const type of [
     "table",
@@ -409,6 +439,24 @@ export function registerTools(
         .authorize(identity, a.connectionId, "db_explain")
         .adapter.explain(a.sql, a.parameters);
     },
+  );
+  tool(
+    "db_open_session",
+    "Pin one backend connection and return an owner-bound sessionId for stateful workflows (temporary objects, session state). Statements carrying the sessionId run on the pinned connection. Idle sessions expire (DB_SESSION_IDLE_TTL_SECONDS, default 1800); closing releases the connection. High-risk SQL still requires prepare/confirm.",
+    connectionInput,
+    (a) => gateway.openSession(identity, a.connectionId, "db_open_session"),
+  );
+  tool(
+    "db_close_session",
+    "Close your pinned session and release its backend connection.",
+    { ...connectionInput, sessionId: z.uuid() },
+    (a) =>
+      gateway.closeSession(
+        identity,
+        a.connectionId,
+        "db_close_session",
+        a.sessionId,
+      ),
   );
   tool(
     "db_transaction_begin",

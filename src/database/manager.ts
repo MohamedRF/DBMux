@@ -42,6 +42,7 @@ export class ConnectionManager {
           poolMax: c.poolMax,
           ssl: c.ssl,
           sid: c.sid,
+          sslCa: c.sslCa,
         };
       });
   }

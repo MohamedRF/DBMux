@@ -3,7 +3,9 @@ import { requestActivity } from "../services/activity.js";
 import express from "express";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { createMcp } from "./mcp.js";
-import { join } from "node:path";
+import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { Gateway } from "../services/gateway.js";
 import type { Config } from "../config/index.js";
 import { adminRouter, bearer } from "../api/admin.js";
@@ -42,6 +44,17 @@ export async function serveMcp(
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
 }
+// Serve the admin UI relative to this module so the workspace works no
+// matter where the process is launched from (dev tsx, compiled dist, Docker).
+const here = dirname(fileURLToPath(import.meta.url));
+const uiDir = [
+  resolve(here, "../ui"),
+  resolve(here, "../../src/ui"),
+  resolve(here, "../../../src/ui"),
+].find(existsSync);
+if (!uiDir) throw new Error("Admin UI assets not found next to the server");
+const staticUiDir: string = uiDir;
+
 export function createApp(gateway: Gateway, config: Config) {
   const app = express();
   app.disable("x-powered-by");
@@ -185,7 +198,7 @@ export function createApp(gateway: Gateway, config: Config) {
       },
     });
   });
-  app.use(express.static(join(process.cwd(), "src", "ui"), { etag: false }));
+  app.use(express.static(staticUiDir, { etag: false }));
   app.use(
     (
       error: unknown,

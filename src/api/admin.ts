@@ -92,7 +92,19 @@ export function adminRouter(gateway: Gateway, config: Config) {
       tokens: gateway.auth.list().length,
     }),
   );
-  router.get("/connections", (_req, res) => res.json(gateway.manager.list()));
+  router.get("/connections", (_req, res) => {
+    const health = new Map(
+      gateway.manager.store
+        .listEntries<ConnectionHealth>("connection-health")
+        .map((entry) => [entry.id, entry.value]),
+    );
+    res.json(
+      gateway.manager.list().map((connection) => ({
+        ...connection,
+        health: health.get(connection.id) ?? null,
+      })),
+    );
+  });
   router.get("/dashboard", (req, res) => {
     const { timezoneOffset } = z
       .object({

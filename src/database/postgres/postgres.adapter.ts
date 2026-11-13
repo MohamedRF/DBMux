@@ -7,10 +7,16 @@ import type {
   QueryResult,
   StatementResult,
   TransactionHandle,
+  SessionHandle,
   CatalogKind,
   CatalogFilter,
 } from "../adapter.js";
-import { normalize, quoteIdentifier } from "../adapter.js";
+import {
+  normalize,
+  quoteIdentifier,
+  clampLimit,
+  clampOffset,
+} from "../adapter.js";
 import { postgresCatalog } from "./postgres.metadata.js";
 import { safeError } from "../../security/errors.js";
 import { classify } from "../../security/sql-policy.js";
@@ -62,6 +68,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     limit: number,
   ): Promise<QueryResult> {
     const started = performance.now();
+    const lim = clampLimit(limit, 100, 1000);
     // A server-side cursor bounds transferred rows even when the caller's SELECT has no LIMIT.
     await client.query(
       "DECLARE dbmux_cursor NO SCROLL CURSOR FOR " + sql,
@@ -69,10 +76,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     );
     try {
       const result = await client.query(
-        `FETCH FORWARD ${limit + 1} FROM dbmux_cursor`,
+        `FETCH FORWARD ${lim + 1} FROM dbmux_cursor`,
       );
       const rows = result.rows
-        .slice(0, limit)
+        .slice(0, lim)
         .map((row) => normalize(row) as Record<string, unknown>);
       return {
         columns: result.fields.map((f) => ({
@@ -82,7 +89,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         rows,
         rowCount: rows.length,
         executionMs: performance.now() - started,
-        truncated: result.rows.length > limit,
+        truncated: result.rows.length > lim,
       };
     } finally {
       await client.query("CLOSE dbmux_cursor");
@@ -169,6 +176,62 @@ export class PostgresAdapter implements DatabaseAdapter {
       rollback: () => finish("ROLLBACK"),
     };
   }
+  async beginSession(): Promise<SessionHandle> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("SELECT set_config('search_path',$1,false)", [
+        this.config.policy.allowedSchemas.map(quoteIdentifier).join(","),
+      ]);
+      await client.query("SELECT set_config('statement_timeout',$1,false)", [
+        String(this.querySeconds * 1000),
+      ]);
+    } catch (e) {
+      client.release(true);
+      throw e;
+    }
+    const query = async (sql: string, binds: Binds, limit: number) => {
+      await client.query("BEGIN READ ONLY");
+      try {
+        await client.query("SELECT set_config('statement_timeout',$1,true)", [
+          String(this.querySeconds * 1000),
+        ]);
+        const result = await this.query(
+          client,
+          sql.replace(/;\s*$/, ""),
+          binds,
+          limit,
+        );
+        await client.query("COMMIT");
+        return result;
+      } catch (e) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw e;
+      }
+    };
+    const execute = async (sql: string, binds: Binds) => {
+      const start = performance.now();
+      const ddl = classify(sql).category.startsWith("DDL");
+      await client.query("SELECT set_config('statement_timeout',$1,false)", [
+        String((ddl ? this.ddlSeconds : this.querySeconds) * 1000),
+      ]);
+      const r = await client.query(sql, this.values(binds));
+      return {
+        rowsAffected: r.rowCount ?? 0,
+        executionMs: performance.now() - start,
+        implicitCommit: false,
+      };
+    };
+    return {
+      query,
+      execute,
+      close: async () => {
+        // Ends anything left pending; uncommitted explicit transactions
+        // are not supported in autocommit sessions.
+        await client.query("ROLLBACK").catch(() => undefined);
+        client.release();
+      },
+    };
+  }
   async catalog(kind: CatalogKind, filter: CatalogFilter) {
     const values: unknown[] = [];
     const conditions: string[] = [];
@@ -190,11 +253,11 @@ export class PostgresAdapter implements DatabaseAdapter {
       conditions.push(
         `CAST(row_to_json(catalog) AS text) ILIKE ${bind("%" + filter.query + "%")}`,
       );
-    const sql = `SELECT row_to_json(catalog) AS entry FROM (${postgresCatalog[kind]}) catalog ${conditions.length ? "WHERE " + conditions.join(" AND ") : ""} ORDER BY CAST(row_to_json(catalog) AS text) OFFSET ${filter.offset ?? 0}`;
+    const sql = `SELECT row_to_json(catalog) AS entry FROM (${postgresCatalog[kind]}) catalog ${conditions.length ? "WHERE " + conditions.join(" AND ") : ""} ORDER BY CAST(row_to_json(catalog) AS text) OFFSET ${clampOffset(filter.offset)}`;
     const r = await this.executeQuery(
       sql,
       values as Binds,
-      filter.limit ?? 100,
+      clampLimit(filter.limit, 100, 1000),
     );
     return {
       ...r,

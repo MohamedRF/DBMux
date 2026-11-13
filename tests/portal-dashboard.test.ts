@@ -56,6 +56,7 @@ async function fixture(t: TestContext) {
     QUERY_TIMEOUT_SECONDS: 30,
     DDL_TIMEOUT_SECONDS: 60,
     TRANSACTION_TIMEOUT_SECONDS: 300,
+    DB_SESSION_IDLE_TTL_SECONDS: 1800,
   };
   const http = createApp(gateway, config).listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => http.once("listening", resolve));

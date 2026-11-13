@@ -84,6 +84,18 @@ export interface TransactionHandle {
   commit(): Promise<void>;
   rollback(): Promise<void>;
 }
+// A session pins one backend connection across MCP calls. Reads are still
+// bounded and policy-checked per statement; statements commit individually
+// (autocommit), so closing a session never holds uncommitted changes.
+export interface SessionHandle {
+  query(sql: string, binds: Binds, limit: number): Promise<QueryResult>;
+  execute(sql: string, binds: Binds): Promise<StatementResult>;
+  close(): Promise<void>;
+}
+export const clampLimit = (limit: number | undefined, def = 100, max = 1000) =>
+  Math.min(max, Math.max(1, Math.floor(limit ?? def) || 1));
+export const clampOffset = (offset: number | undefined) =>
+  Math.max(0, Math.floor(offset ?? 0) || 0);
 export interface DatabaseAdapter {
   readonly engine: "oracle" | "postgres";
   testConnection(): Promise<Record<string, unknown>>;
@@ -96,6 +108,7 @@ export interface DatabaseAdapter {
   executeQuery(sql: string, binds: Binds, limit: number): Promise<QueryResult>;
   executeStatement(sql: string, binds: Binds): Promise<StatementResult>;
   beginTransaction(): Promise<TransactionHandle>;
+  beginSession(): Promise<SessionHandle>;
   explain(sql: string, binds: Binds): Promise<QueryResult>;
   quote(identifier: string): string;
   close(): Promise<void>;

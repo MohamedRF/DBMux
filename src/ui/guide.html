@@ -422,8 +422,10 @@ Using DBMux connection PROJECT_DEV, inspect the allowed schemas and relevant tab
                 Check the allowed schema, connection and token permissions,
                 disabled tools and blocked tables/columns. UPDATE/DELETE need a
                 top-level WHERE by default. Unknown syntax, administrative SQL,
-                RETURNING, CASCADE and unsplit scripts are deliberately denied.
-                A WHERE clause alone does not guarantee a safe change.
+                RETURNING, CASCADE and non-conforming scripts are deliberately
+                denied. Use db_execute_batch to run a script through the policy;
+                it splits statements and checks every one before executing. A
+                WHERE clause alone does not guarantee a safe change.
               </p>
             </details>
             <details>

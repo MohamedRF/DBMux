@@ -1,12 +1,25 @@
 import { randomUUID } from "node:crypto";
+import type {
+  Binds,
+  CatalogKind,
+  CatalogFilter,
+  QueryResult,
+  StatementResult,
+} from "../database/adapter.js";
 import type { ConnectionManager } from "../database/manager.js";
-import type { Binds, CatalogKind, CatalogFilter } from "../database/adapter.js";
 import type { Auth, Identity } from "../security/auth.js";
 import { intersect } from "../security/permissions.js";
-import { assertPolicy, classify } from "../security/sql-policy.js";
 import { GatewayError, safeError } from "../security/errors.js";
 import { hash } from "../security/encryption.js";
+import {
+  assertPolicy,
+  classify,
+  splitStatements,
+  usesBindPlaceholders,
+  readOnlyForced,
+} from "../security/sql-policy.js";
 import { Transactions } from "./transaction.service.js";
+import { Sessions } from "./session.service.js";
 import { Snapshots } from "./schema-diff.service.js";
 import { requestActivity } from "./activity.js";
 interface Prepared {
@@ -15,16 +28,32 @@ interface Prepared {
   expiresAt: number;
   sealed: string;
 }
+export interface BatchResult {
+  success: boolean;
+  batchId: string;
+  statementsExecuted: number;
+  total: number;
+  results: Array<Record<string, unknown>>;
+  failedIndex?: number;
+  atomic: boolean;
+  rolledBack?: boolean;
+  partialChangesPossible?: boolean;
+  cleanupError?: { code: string; message: string };
+  durationMs: number;
+}
 export class Gateway {
   readonly transactions: Transactions;
+  readonly sessions: Sessions;
   readonly snapshots: Snapshots;
   constructor(
     readonly manager: ConnectionManager,
     readonly auth: Auth,
     seconds = 300,
     onFailure: (id: string) => void = () => undefined,
+    sessionSeconds = 1800,
   ) {
     this.transactions = new Transactions(seconds, onFailure);
+    this.sessions = new Sessions(sessionSeconds, onFailure);
     this.snapshots = new Snapshots(manager.store);
   }
   authorize(identity: Identity, id: string, tool: string) {
@@ -219,15 +248,27 @@ export class Gateway {
       confirmed?: boolean;
       queryOnly?: boolean;
       transactionId?: string;
+      sessionId?: string;
       limit?: number;
       expected?: { category: string; objectType: string };
     } = {},
   ) {
+    if (options.sessionId && options.transactionId)
+      throw new GatewayError(
+        "INVALID_OPTIONS",
+        "A session pins one connection; do not also pass a transaction.",
+      );
     const a = this.authorize(identity, id, tool);
     const analysis = assertPolicy(sql, a.permissions, {
       ...a.config.policy,
       engine: a.config.engine,
     });
+    if (readOnlyForced() && analysis.category !== "READ")
+      throw new GatewayError(
+        "READ_ONLY",
+        "DB_MCP_READ_ONLY disables non-read statements for this process.",
+        403,
+      );
     if (options.queryOnly && analysis.category !== "READ")
       throw new GatewayError(
         "READ_REQUIRED",
@@ -271,6 +312,7 @@ export class Gateway {
       context,
       analysis,
       transactionId: options.transactionId,
+      sessionId: options.sessionId,
     };
     const auditId = this.manager.store.audit(
       identity.id,
@@ -307,7 +349,24 @@ export class Gateway {
               });
             },
           )
-        : await execute(a.adapter);
+        : options.sessionId
+          ? await this.sessions.run(options.sessionId, identity.id, (t) => {
+              assertPolicy(
+                sql,
+                this.authorize(identity, id, tool).permissions,
+                this.manager.configFor(id).policy,
+              );
+              if (t.connectionId !== id)
+                throw new GatewayError(
+                  "SESSION_SCOPE",
+                  "Session belongs to another connection.",
+                );
+              return execute({
+                executeQuery: t.handle.query.bind(t.handle),
+                executeStatement: t.handle.execute.bind(t.handle),
+              });
+            })
+          : await execute(a.adapter);
       this.manager.store.finishAudit(
         auditId,
         options.transactionId ? "uncommitted" : "success",
@@ -371,6 +430,220 @@ export class Gateway {
       throw e;
     }
   }
+  openSession(identity: Identity, id: string, tool: string) {
+    const access = this.authorize(identity, id, tool);
+    if (
+      !access.permissions.read &&
+      !access.permissions.insert &&
+      !access.permissions.update &&
+      !access.permissions.delete
+    )
+      throw new GatewayError(
+        "MCP_DB_PERMISSION_DENIED",
+        "Token has no query or DML permissions.",
+        403,
+      );
+    return this.sessions
+      .begin(identity.id, id, access.adapter)
+      .then((value) => ({ ...value, connectionId: id }));
+  }
+  async closeSession(
+    identity: Identity,
+    id: string,
+    tool: string,
+    sessionId: string,
+  ) {
+    this.authorize(identity, id, tool);
+    const t = this.sessions.get(sessionId, identity.id);
+    if (t.connectionId !== id)
+      throw new GatewayError(
+        "SESSION_SCOPE",
+        "Session belongs to another connection.",
+      );
+    await this.sessions.finish(sessionId, identity.id);
+    return { sessionId, closed: true };
+  }
+  async batch(
+    identity: Identity,
+    id: string,
+    tool: string,
+    script: string,
+    options: {
+      useTransaction?: boolean;
+      continueOnError?: boolean;
+      maxRows?: number;
+      sessionId?: string;
+    },
+    context: Record<string, string>,
+  ): Promise<BatchResult> {
+    const a = this.authorize(identity, id, tool);
+    if (options.useTransaction && options.continueOnError)
+      throw new GatewayError(
+        "INVALID_OPTIONS",
+        "A transactional batch stops and rolls back at the first failure; it cannot continue on error.",
+      );
+    if (options.useTransaction && options.sessionId)
+      throw new GatewayError(
+        "INVALID_OPTIONS",
+        "useTransaction pins its own connection; do not also pass a sessionId.",
+      );
+    const statements = splitStatements(script);
+    if (!statements.length)
+      throw new GatewayError(
+        "EMPTY_SCRIPT",
+        "The script contains no statements.",
+      );
+    if (statements.length > 100)
+      throw new GatewayError(
+        "TOO_MANY_STATEMENTS",
+        "Batch execution is limited to 100 statements.",
+      );
+    if (usesBindPlaceholders(script))
+      throw new GatewayError(
+        "BIND_NOT_SUPPORTED",
+        "Scripts with bind placeholders are rejected; use db_execute with positional or named binds for parameterized statements.",
+      );
+    // Stored definitions embed inner semicolons and cannot be auto-split or
+    // classified reliably; reject them by header shape before anything runs.
+    const plsqlHeader =
+      /^\s*CREATE\s+(OR\s+REPLACE\s+)?(EDITIONABLE\s+|NONEDITIONABLE\s+)?(PROCEDURE|FUNCTION|TRIGGER|PACKAGE)\b/i;
+    for (const [index, sql] of statements.entries())
+      if (plsqlHeader.test(sql))
+        throw new GatewayError(
+          "PLSQL_BATCH_UNSUPPORTED",
+          `Statement ${index + 1} is a stored definition; use db_apply_migration with an explicit statements array.`,
+        );
+    // Classify everything before anything runs so a rejected statement never
+    // leaves a partially applied script behind.
+    const classifications = statements.map((sql) =>
+      assertPolicy(sql, a.permissions, {
+        ...a.config.policy,
+        engine: a.config.engine,
+      }),
+    );
+    for (const [index, analysis] of classifications.entries())
+      if (analysis.requiresConfirmation)
+        throw new GatewayError(
+          "CONFIRMATION_REQUIRED",
+          `Statement ${index + 1} requires confirmation; prepare and confirm it separately with db_prepare_change/db_execute_change.`,
+        );
+    if (readOnlyForced() && classifications.some((c) => c.category !== "READ"))
+      throw new GatewayError(
+        "READ_ONLY",
+        "DB_MCP_READ_ONLY disables non-read statements for this process.",
+        403,
+      );
+    if (options.useTransaction && a.config.engine === "oracle")
+      for (const [index, analysis] of classifications.entries())
+        if (!["READ", "INSERT", "UPDATE", "DELETE"].includes(analysis.category))
+          throw new GatewayError(
+            "DML_TRANSACTION_ONLY",
+            `Statement ${index + 1} implicit-commits under Oracle; a transactional batch accepts SELECT/INSERT/UPDATE/DELETE only.`,
+          );
+    const batchId = randomUUID();
+    const batchContext = { ...context, batchId };
+    const binds: Binds = a.config.engine === "oracle" ? {} : [];
+    const start = performance.now();
+    let transactionId: string | undefined;
+    try {
+      if (options.useTransaction)
+        transactionId = (
+          await this.transactions.begin(identity.id, id, a.adapter)
+        ).transactionId;
+      const results: Array<Record<string, unknown>> = [];
+      let executed = 0;
+      let failedIndex: number | undefined;
+      for (const [index, sql] of statements.entries()) {
+        const analysis = classifications[index]!;
+        try {
+          const r = await this.run(
+            identity,
+            id,
+            tool,
+            sql,
+            binds,
+            batchContext,
+            {
+              transactionId,
+              sessionId: options.sessionId,
+              limit: options.maxRows,
+            },
+          );
+          if (analysis.category === "READ") {
+            const read = r as QueryResult;
+            results.push({
+              index,
+              category: analysis.category,
+              rowCount: read.rowCount,
+              truncated: read.truncated,
+              executionMs: read.executionMs,
+            });
+          } else {
+            const write = r as StatementResult;
+            results.push({
+              index,
+              category: analysis.category,
+              rowsAffected: write.rowsAffected,
+              executionMs: write.executionMs,
+            });
+          }
+          executed++;
+        } catch (error) {
+          results.push({
+            index,
+            category: analysis.category,
+            error: safeError(error),
+          });
+          failedIndex = index;
+          if (options.continueOnError && !transactionId) continue;
+          break;
+        }
+      }
+      if (failedIndex !== undefined) {
+        let cleanupError: unknown;
+        if (transactionId && this.transactions.has(transactionId, identity.id))
+          try {
+            await this.transactions.finish(transactionId, identity.id, false);
+          } catch (rollbackError) {
+            cleanupError = rollbackError;
+          }
+        return {
+          success: false,
+          batchId,
+          statementsExecuted: executed,
+          total: statements.length,
+          results,
+          failedIndex,
+          atomic: !!transactionId,
+          ...(transactionId
+            ? {
+                rolledBack: !cleanupError,
+                partialChangesPossible: !!cleanupError,
+              }
+            : { partialChangesPossible: true }),
+          ...(cleanupError ? { cleanupError: safeError(cleanupError) } : {}),
+          durationMs: performance.now() - start,
+        };
+      }
+      if (transactionId)
+        await this.finishTransaction(identity, id, transactionId, true);
+      return {
+        success: true,
+        batchId,
+        statementsExecuted: executed,
+        total: statements.length,
+        results,
+        atomic: !!transactionId,
+        durationMs: performance.now() - start,
+      };
+    } catch (error) {
+      if (transactionId && this.transactions.has(transactionId, identity.id))
+        await this.transactions
+          .finish(transactionId, identity.id, false)
+          .catch(() => undefined);
+      throw error;
+    }
+  }
   async migration(
     identity: Identity,
     id: string,
@@ -379,6 +652,12 @@ export class Gateway {
     context: Record<string, string>,
   ) {
     const a = this.authorize(identity, id, "db_apply_migration");
+    if (readOnlyForced())
+      throw new GatewayError(
+        "READ_ONLY",
+        "DB_MCP_READ_ONLY disables non-read statements for this process.",
+        403,
+      );
     for (const sql of statements) {
       const preview = this.preview(identity, id, "db_apply_migration", sql);
       if (preview.requiresConfirmation)
@@ -530,6 +809,7 @@ export class Gateway {
     };
   }
   async close() {
+    await this.sessions.close();
     await this.transactions.close();
     await this.manager.close();
   }

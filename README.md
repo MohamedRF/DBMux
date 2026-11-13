@@ -185,7 +185,9 @@ and show the recorded change history.
 
 The usual workflow is **inspect → snapshot → preview → apply → compare → review**. `db_preview_change` classifies SQL and risk without executing it; it is not a dry run or an estimate of affected rows. Review the exact statements and predicates before approving execution.
 
-Use PostgreSQL positional bind arrays (`$1`) or Oracle named bind objects (`:id`). Queries default to 100 rows and cap at 1,000. Supply project/branch context for writes so exports can be filtered to your feature.
+Use PostgreSQL positional bind arrays (`$1`) or Oracle named bind objects (`:id`). Queries default to 100 rows and cap at 1,000 (out-of-range `limit` values are clamped, not rejected). Supply project/branch context for writes so exports can be filtered to your feature.
+
+For multi-step workflows that must preserve connection state, open a session with `db_open_session` and pass its `sessionId` to later `db_query`, `db_execute` or `db_execute_batch` calls. Sessions pin one backend connection, refresh their idle expiry on each call (`DB_SESSION_IDLE_TTL_SECONDS`, default 1800), are owner-bound, run statements in order and commit each statement individually; Oracle DDL still commits implicitly. Close with `db_close_session` when finished. `db_execute_batch` takes a raw script, splits it with the dialect-aware parser (semicolons inside strings, comments and dollar-quoted bodies do not split), checks every statement against central policy before executing anything, and optionally runs the whole batch in one transaction.
 
 High-risk changes, including DELETE with WHERE, use `db_prepare_change` followed by human approval and `db_execute_change`. Prepared changes are owner-bound, single-use and expire after five minutes. The client must obtain actual human approval before sending `confirm: true`; the API flag alone cannot prove approval. UPDATE/DELETE without a top-level WHERE are denied by default.
 
@@ -200,8 +202,9 @@ High-risk changes, including DELETE with WHERE, use `db_prepare_change` followed
 | Explore objects and stored source  | `db_list_views`, `db_list_indexes`, `db_list_routines`, `db_get_routine_source`, `db_search_objects`     |
 | Read bounded results               | `db_query`, `db_sample_rows`, `db_explain`                                                               |
 | Review and confirm changes         | `db_preview_change`, `db_prepare_change`, `db_execute_change`                                            |
-| Apply permitted SQL and migrations | `db_execute`, `db_apply_migration`, `db_create_table`, `db_alter_table`                                  |
+| Apply permitted SQL and migrations | `db_execute`, `db_apply_migration`, `db_execute_batch`, `db_create_table`, `db_alter_table`              |
 | Manage retained transactions       | `db_transaction_begin`, `db_transaction_execute`, `db_transaction_commit`, `db_transaction_rollback`     |
+| Manage stateful sessions           | `db_open_session`, `db_close_session`                                                                    |
 | Compare and export changes         | `db_schema_snapshot`, `db_schema_diff`, `db_change_history`, `db_export_changes`, `db_migration_history` |
 
 The [central tool registry](src/mcp/tools.ts) defines the complete schemas and descriptions. Availability depends on your grants, connection policy and engine; a registered tool does not guarantee that every dialect or statement is permitted.
@@ -213,7 +216,7 @@ The [central tool registry](src/mcp/tools.ts) defines the complete schemas and d
 | PostgreSQL | Pooled node-postgres adapter, scoped catalogs, bounded reads, positional binds and TLS verification | Disposable PostgreSQL 17 integration coverage. Retained transactions use one acquired client; migrations roll back together on failure.                                |
 | Oracle     | Pooled node-oracledb Thin adapter, scoped catalogs and named binds                                  | Live Oracle 19c acceptance outstanding. DDL commits implicitly; retained transactions allow DML only. Migrations may leave partial changes. Thick mode is not enabled. |
 
-Unknown SQL, administrative SQL, arbitrary procedural execution, RETURNING, CASCADE and unsplit multi-statement scripts are deliberately denied. Oracle stored procedure/function/trigger/package definitions require a single CREATE header and END terminator; live compilation remains unverified.
+Unknown SQL, administrative SQL, arbitrary procedural execution, RETURNING, CASCADE and parameterized scripts are deliberately denied. `db_execute_batch` splits scripts with the same fail-closed tokenizer, applies central policy to every statement before anything runs, rejects high-risk statements and stored definitions outright, and can run the whole script atomically (PostgreSQL; Oracle: SELECT/INSERT/UPDATE/DELETE only). `db_execute_batch` does not accept bind placeholders; use `db_execute` with binds for parameterized SQL. Oracle stored procedure/function/trigger/package definitions require a single CREATE header and END terminator; live compilation remains unverified.
 
 Run **one gateway process per SQLite metadata volume**. Snapshots are bounded and cannot provide an atomic view of concurrent external DDL. SQL exports have a 10,000-record bound. Activity records have no automatic retention cleanup. OIDC/MFA and tamper-evident audit storage are not implemented.
 
@@ -223,17 +226,19 @@ See [PostgreSQL](docs/postgresql.md), [Oracle](docs/oracle.md) and [verification
 
 Start with [`.env.example`](.env.example). Important settings:
 
-| Setting                       | Purpose                                                                                   |
-| ----------------------------- | ----------------------------------------------------------------------------------------- |
-| `PUBLIC_URL`                  | Exact browser/client origin; local Node defaults to port 3000, Compose to host port 3001. |
-| `SETUP_TOKEN`                 | Random bootstrap secret, at least 24 characters, used to create the first administrator.  |
-| `MCP_MASTER_KEY_FILE`         | File containing exactly 64 hexadecimal characters for the encryption key.                 |
-| `DATA_DIR`                    | Local metadata directory; Compose overrides this to `/app/data`, backed by `dbmux_data`.  |
-| `PORT`                        | Local Node listening port; Compose fixes the container port at 3000.                      |
-| `BIND_ADDRESS` / `HOST_PORT`  | Compose host binding and published port, defaulting to `127.0.0.1:3001`.                  |
-| `QUERY_TIMEOUT_SECONDS`       | Query timeout, default 30 seconds.                                                        |
-| `DDL_TIMEOUT_SECONDS`         | DDL timeout, default 60 seconds.                                                          |
-| `TRANSACTION_TIMEOUT_SECONDS` | Retained transaction expiry, default 300 seconds.                                         |
+| Setting                       | Purpose                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_URL`                  | Exact browser/client origin; local Node defaults to port 3000, Compose to host port 3001.               |
+| `SETUP_TOKEN`                 | Random bootstrap secret, at least 24 characters, used to create the first administrator.                |
+| `MCP_MASTER_KEY_FILE`         | File containing exactly 64 hexadecimal characters for the encryption key.                               |
+| `DATA_DIR`                    | Local metadata directory; Compose overrides this to `/app/data`, backed by `dbmux_data`.                |
+| `PORT`                        | Local Node listening port; Compose fixes the container port at 3000.                                    |
+| `BIND_ADDRESS` / `HOST_PORT`  | Compose host binding and published port, defaulting to `127.0.0.1:3001`.                                |
+| `QUERY_TIMEOUT_SECONDS`       | Query timeout, default 30 seconds.                                                                      |
+| `DDL_TIMEOUT_SECONDS`         | DDL timeout, default 60 seconds.                                                                        |
+| `TRANSACTION_TIMEOUT_SECONDS` | Retained transaction expiry, default 300 seconds.                                                       |
+| `DB_SESSION_IDLE_TTL_SECONDS` | Idle expiry for sessions opened with `db_open_session`, default 1800 seconds.                           |
+| `DB_MCP_READ_ONLY`            | `0`/`false` forces this process read-only, even over the saved policy; any other value never widens it. |
 
 `/health` checks process availability. `/ready` additionally checks metadata storage. Neither checks database connectivity; use the authenticated connection test action.
 

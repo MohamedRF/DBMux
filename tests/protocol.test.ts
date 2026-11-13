@@ -36,6 +36,7 @@ test("real SDK v2 Streamable HTTP handshake, tools, resources, scopes and revoca
     QUERY_TIMEOUT_SECONDS: 30,
     DDL_TIMEOUT_SECONDS: 60,
     TRANSACTION_TIMEOUT_SECONDS: 300,
+    DB_SESSION_IDLE_TTL_SECONDS: 1800,
   } satisfies Config;
   const http = createApp(gateway, config).listen(0, "127.0.0.1");
   await new Promise<void>((r) => http.once("listening", r));
@@ -78,6 +79,12 @@ test("real SDK v2 Streamable HTTP handshake, tools, resources, scopes and revoca
     );
     const tools = await client.listTools();
     assert.ok(tools.tools.some((t) => t.name === "db_schema_diff"));
+    for (const name of [
+      "db_execute_batch",
+      "db_open_session",
+      "db_close_session",
+    ])
+      assert.ok(tools.tools.some((t) => t.name === name));
     assert.ok(tools.tools.length > 50);
     const result = await client.callTool({
       name: "db_connections",

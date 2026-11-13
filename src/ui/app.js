@@ -188,6 +188,25 @@ async function refresh() {
         `${c.name} · ${c.engine} · ${c.enabled ? "MCP enabled" : "MCP disabled"} · ${c.id}`,
       );
       a.dataset.mcp = c.enabled ? "enabled" : "disabled";
+      const health = c.health;
+      const badge = document.createElement("span");
+      badge.className =
+        "health-badge " +
+        (!health ? "is-unknown" : health.connected ? "is-ok" : "is-bad");
+      const dot = document.createElement("span");
+      dot.className = "health-dot";
+      const label = document.createElement("span");
+      label.textContent = !health
+        ? "Not tested"
+        : health.connected
+          ? `Tested ${new Date(health.checkedAt).toLocaleString()}${
+              Number.isFinite(health.latencyMs)
+                ? ` · ${Math.round(health.latencyMs)} ms`
+                : ""
+            }`
+          : `Test failed${health.errorCode ? ` · ${health.errorCode}` : ""}`;
+      badge.append(dot, label);
+      a.append(badge);
       a.append(
         button("Copy connection ID", () => copyText(c.id, null, report)),
         button("Test", async () => {
@@ -220,6 +239,8 @@ async function refresh() {
           ])
             f.elements[key].value = c[key];
           f.elements.ssl.checked = c.ssl;
+          if (f.elements.sslCa) f.elements.sslCa.value = c.sslCa ?? "";
+          updateEngineFields();
           f.elements.sid.checked = c.sid;
           f.elements.engine.value = c.engine;
           f.elements.schemas.value = c.policy.allowedSchemas.join(",");
@@ -259,12 +280,29 @@ async function refresh() {
       return a;
     }),
   );
+  const emptyState = (strong, detail) => {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    const a = document.createElement("strong");
+    a.textContent = strong;
+    const b = document.createElement("span");
+    b.textContent = detail;
+    empty.append(a, b);
+    return empty;
+  };
   if (!$("connectionList").children.length)
     $("connectionList").append(
-      item("No connections yet. Add your first development database below."),
+      emptyState(
+        "No connections yet",
+        "Add your first development database below, then test connectivity and enable MCP.",
+      ),
     );
   const tokens = await api("/tokens");
   cachedTokens = tokens;
+  const tokenRank = (t) => (t.revoked ? 2 : t.expiresAt <= Date.now() ? 1 : 0);
+  tokens.sort(
+    (a, b) => tokenRank(a) - tokenRank(b) || a.expiresAt - b.expiresAt,
+  );
   $("tokenCount").textContent = tokens.filter(
     (t) => !t.revoked && t.expiresAt > Date.now(),
   ).length;
@@ -345,8 +383,9 @@ async function refresh() {
     $(id).dispatchEvent(new Event("input"));
   if (!$("tokenList").children.length)
     $("tokenList").append(
-      item(
-        "No developer tokens yet. Create a personal token with explicit connection access.",
+      emptyState(
+        "No developer tokens yet",
+        "Create a personal token with explicit connection access.",
       ),
     );
 }
@@ -434,6 +473,7 @@ $("connectionForm").onsubmit = async (e) => {
       connectString: a.connectString || undefined,
       sid: f.elements.sid.checked,
       ssl: f.elements.ssl.checked,
+      sslCa: a.sslCa?.trim() || undefined,
       poolMin: Number(a.poolMin),
       poolMax: Number(a.poolMax),
       enabled: f.elements.enabled.checked,
@@ -470,6 +510,33 @@ $("resetConnection").onclick = () => {
   $("connectionHeading").textContent = "Add a connection";
   connectionPermissions.set(grant("read-only"));
   updateEngineFields();
+};
+$("removeInactiveTokens").onclick = async () => {
+  const inactive = cachedTokens.filter(
+    (t) => t.revoked || t.expiresAt <= Date.now(),
+  );
+  if (!inactive.length) {
+    report("No inactive tokens to remove.");
+    return;
+  }
+  if (
+    !confirm(
+      `Delete ${inactive.length} inactive token(s)? Activity logs will be retained.`,
+    )
+  )
+    return;
+  const button = $("removeInactiveTokens");
+  button.disabled = true;
+  try {
+    for (const t of inactive)
+      await api("/tokens/" + encodeURIComponent(t.id) + "/remove", "POST");
+    report(
+      `Removed ${inactive.length} inactive token(s). Activity logs retained.`,
+    );
+    await refresh();
+  } finally {
+    button.disabled = false;
+  }
 };
 $("tokenForm").onsubmit = async (e) => {
   e.preventDefault();
@@ -607,7 +674,12 @@ function updateEngineFields() {
   for (const name of ["connectString", "sid"])
     f.elements[name].closest("label").hidden = !oracle;
   f.elements.ssl.closest("label").hidden = oracle;
+  if (f.elements.sslCa)
+    f.elements.sslCa.closest("label").hidden =
+      oracle || !f.elements.ssl.checked;
 }
+
+$("connectionForm").elements.ssl.onchange = updateEngineFields;
 
 $("connectionForm").elements.engine.onchange = () => {
   $("connectionForm").elements.port.value =

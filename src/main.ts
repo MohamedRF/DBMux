@@ -15,7 +15,9 @@ const gateway = new Gateway(
   manager,
   new Auth(store),
   config.TRANSACTION_TIMEOUT_SECONDS,
-  (id) => logger.error({ transactionId: id }, "Transaction cleanup failed"),
+  (id) =>
+    logger.error({ id }, "Retained transaction or session cleanup failed"),
+  config.DB_SESSION_IDLE_TTL_SECONDS,
 );
 const server = createApp(gateway, config).listen(config.PORT, () =>
   logger.info({ port: config.PORT }, "DBMux listening"),
