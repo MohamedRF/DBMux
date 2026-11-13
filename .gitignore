@@ -9,3 +9,5 @@ dbmux_data/
 # Private internal setup notes (contain internal network details)
 DEVELOPER.md
 DEVELOPER copy.md
+dbmux_data.backup-2026-11-13/dbmux.sqlite
+.env.backup-2026-11-13
