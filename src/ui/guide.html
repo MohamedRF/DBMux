@@ -218,10 +218,16 @@ export DB_MCP_TOKEN="YOUR_PERSONAL_TOKEN"</pre>
             </div>
             <ol start="3">
               <li>
-                Save the client configuration provided by your administrator. It
-                must reference your token environment variable and the correct
-                endpoint. Generic MCP templates need adaptation to your client.
-                Use HTTPS for remote access.
+                Save the client configuration provided by your administrator, or
+                paste the matching install prompt from the
+                <a
+                  href="https://github.com/MohamedRF/DBMux/blob/main/docs/mcp-clients.md#let-the-harness-install-it-for-you-copy-paste-prompts"
+                  >MCP client guide</a
+                >
+                into your coding agent — it writes the configuration and runs
+                db_connections for you. It must reference your token environment
+                variable and the correct endpoint. Generic MCP templates need
+                adaptation to your client. Use HTTPS for remote access.
               </li>
               <li>
                 Restart or reconnect the client. Ask your agent to list
@@ -241,10 +247,15 @@ Use DBMux to call db_connections and list my available development connections. 
               <a href="https://learn.chatgpt.com/docs/extend/mcp?surface=cli"
                 >Codex</a
               >, <a href="https://code.claude.com/docs/en/mcp">Claude Code</a>,
-              <a href="https://cursor.com/docs/mcp">Cursor</a> and
+              <a href="https://cursor.com/docs/mcp">Cursor</a>,
               <a
                 href="https://code.visualstudio.com/docs/agents/reference/mcp-configuration"
-                >VS Code</a
+                >GitHub Copilot</a
+              >
+              and
+              <a
+                href="https://code.visualstudio.com/docs/agents/reference/mcp-configuration"
+                >VS Code (editor-managed)</a
               >
               instructions. Never commit tokens or paste them into team
               documentation.

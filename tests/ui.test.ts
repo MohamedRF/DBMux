@@ -10,7 +10,13 @@ const { clientConfiguration, clients, shellCommands, teamHandoff } =
 const endpoint = "https://gateway.example.test/mcp";
 
 test("installation generates the correct environment reference for each HTTP client", () => {
-  for (const client of ["Claude Code", "Cursor", "VS Code", "Generic MCP"]) {
+  for (const client of [
+    "Claude Code",
+    "Cursor",
+    "VS Code",
+    "GitHub Copilot",
+    "Generic MCP",
+  ]) {
     const config = JSON.parse(clientConfiguration(client, endpoint));
     const remote = (config.mcpServers ?? config.servers)["dbmux-dev"];
     assert.equal(remote.url, endpoint);
@@ -20,7 +26,11 @@ test("installation generates the correct environment reference for each HTTP cli
         ? "Bearer ${env:DB_MCP_TOKEN}"
         : "Bearer ${DB_MCP_TOKEN}",
     );
-    if (client === "Claude Code" || client === "VS Code")
+    if (
+      client === "Claude Code" ||
+      client === "VS Code" ||
+      client === "GitHub Copilot"
+    )
       assert.equal(remote.type, "http");
   }
   const codex = clientConfiguration("Codex", endpoint);
@@ -31,6 +41,32 @@ test("installation generates the correct environment reference for each HTTP cli
     'https://example.test/"quoted"/mcp',
   );
   assert.ok(escaped.includes('url = "https://example.test/\\"quoted\\"/mcp"'));
+});
+
+test("GitHub Copilot configuration uses the native mcpServers format and a token reference only", () => {
+  const raw = clientConfiguration("GitHub Copilot", endpoint);
+  assert.ok(!raw.includes("YOUR_PERSONAL_TOKEN"));
+  const config = JSON.parse(raw);
+  assert.deepEqual(Object.keys(config), ["mcpServers"]);
+  const remote = config.mcpServers["dbmux-dev"];
+  assert.equal(remote.type, "http");
+  assert.equal(remote.url, endpoint);
+  assert.deepEqual(remote.headers, {
+    Authorization: "Bearer ${DB_MCP_TOKEN}",
+  });
+  assert.equal(remote.env, undefined);
+  assert.equal(remote.auth, undefined);
+  assert.match(clients["GitHub Copilot"].instructions, /mcp-config\.json/);
+  assert.match(clients["GitHub Copilot"].instructions, /\.mcp\.json/);
+  assert.match(clients["GitHub Copilot"].instructions, /DB_MCP_TOKEN/);
+  // Editor-managed VS Code profile keeps the deprecated Local harness format.
+  const vscode = JSON.parse(clientConfiguration("VS Code", endpoint));
+  assert.deepEqual(Object.keys(vscode), ["servers"]);
+  assert.equal(
+    vscode.servers["dbmux-dev"].headers.Authorization,
+    "Bearer ${env:DB_MCP_TOKEN}",
+  );
+  assert.match(clients["VS Code"].instructions, /deprecated/i);
 });
 
 test("STDIO configuration inherits credentials without embedding a placeholder token", () => {

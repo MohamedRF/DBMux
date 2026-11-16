@@ -6,6 +6,9 @@
   "engines": {
     "node": ">=24.15.0 <25"
   },
+  "bin": {
+    "dbmcp": "dist/src/cli.js"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "build": "tsc",

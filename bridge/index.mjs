@@ -52,7 +52,13 @@ async function stop(code) {
   if (stopping) return;
   stopping = true;
   await Promise.allSettled([local.close(), remote.close()]);
-  process.exit(code);
+  // Exit by draining the loop instead of calling process.exit()
+  // mid-teardown: forcing exit while stdio handles are still closing
+  // trips a libuv assertion on Windows. A short unref'd backstop keeps
+  // a stuck handle from pinning the process forever.
+  process.exitCode = code;
+  const backstop = setTimeout(() => process.exit(code), 1000);
+  backstop.unref();
 }
 function fail() {
   process.stderr.write(

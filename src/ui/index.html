@@ -956,7 +956,9 @@ Use DBMux to call db_connections and list the development connections available 
           <p class="form-note">
             Use HTTPS for remote access. Client configuration formats and
             environment substitution vary; Generic MCP is a template, not a
-            universal format.
+            universal format. Configurations reference the DB_MCP_TOKEN variable
+            — provide it to the process, container or remote runner that
+            actually executes your client, never inside a shared file.
           </p>
         </section>
       </div>

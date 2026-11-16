@@ -4,15 +4,31 @@
   "type": "module",
   "description": "STDIO to authenticated remote DBMux MCP bridge; contains no database drivers",
   "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "dbmux",
+    "stdio",
+    "bridge"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MohamedRF/DBMux.git",
+    "directory": "bridge"
+  },
   "bin": {
     "db-mcp-bridge": "index.mjs"
   },
   "files": [
     "index.mjs",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.3.1",
