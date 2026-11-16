@@ -12,8 +12,11 @@ import {
   portalDashboard,
   type ConnectionHealth,
 } from "../services/portal.service.js";
+// RFC 7235 §2.1: the auth scheme is case-insensitive and extra whitespace is
+// legal. Trim so tokens pasted with stray spaces/newlines still resolve
+// instead of failing with a bare 401.
 export const bearer = (req: express.Request) =>
-  req.headers.authorization?.match(/^Bearer (\S+)$/)?.[1] ?? "";
+  req.headers.authorization?.trim().match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
 function attachRequestConnection(gateway: Gateway, id: string) {
   const activityId = requestActivity.getStore()?.activityId;
   if (activityId)

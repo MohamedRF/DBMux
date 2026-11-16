@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { requestActivity } from "../services/activity.js";
 import express from "express";
-import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
-import { createMcp } from "./mcp.js";
+import { pino } from "pino";
+import { createMcpHandler } from "@modelcontextprotocol/server";
+import { toNodeHandler } from "@modelcontextprotocol/node";
+import { authInfoFor, createMcpFactory } from "./mcp.js";
 import { dirname, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -13,6 +15,10 @@ import { adminRouter, bearer } from "../api/admin.js";
 import { GatewayError, safeError } from "../security/errors.js";
 import { ZodError } from "zod";
 
+const logger = pino({
+  redact: ["password", "token", "authorization", "key"],
+});
+
 export function foundationApp() {
   const app = express();
   app.disable("x-powered-by");
@@ -20,30 +26,20 @@ export function foundationApp() {
   app.get("/health", (_req, res) => res.json({ status: "ok", mcp: true }));
   app.get("/ready", (_req, res) => res.json({ status: "ready" }));
   app.post("/mcp", (_req, res) =>
-    res.status(401).json({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Bearer authentication required",
-      },
-    }),
+    res
+      .status(401)
+      .setHeader(
+        "WWW-Authenticate",
+        'Bearer realm="dbmux", error="invalid_token"',
+      )
+      .json({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Bearer authentication required",
+        },
+      }),
   );
   return app;
-}
-export async function serveMcp(
-  req: express.Request,
-  res: express.Response,
-  server = createMcp(),
-) {
-  const transport = new NodeStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-  res.on("close", () => {
-    void transport.close();
-    void server.close();
-  });
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
 }
 // Serve the admin UI relative to this module so the workspace works no
 // matter where the process is launched from (dev tsx, compiled dist, Docker).
@@ -80,7 +76,27 @@ function invalidInput(error: ZodError) {
 export function createApp(gateway: Gateway, config: Config) {
   const app = express();
   app.disable("x-powered-by");
-  app.use(compression());
+  // Never compress /mcp: an SSE-upgraded MCP response must flush each frame
+  // immediately, not wait for the compression buffer to fill.
+  app.use(
+    compression({
+      filter: (req, res) => req.path !== "/mcp" && compression.filter(req, res),
+    }),
+  );
+  // Single dual-era MCP endpoint (protocol revisions 2026-07-28 and 2025-era
+  // stateless). The handler performs no token verification itself; the
+  // Express layer authenticates the bearer and passes a validated AuthInfo
+  // through (`req.auth`), which the factory turns into a freshly resolved
+  // identity per request. Legacy clients keep working through the SDK's
+  // built-in stateless fallback.
+  const mcpHandler = createMcpHandler(createMcpFactory(gateway), {
+    onerror: (error) =>
+      logger.warn({ err: error.message }, "MCP request failed"),
+  });
+  const mcpNodeHandler = toNodeHandler(mcpHandler, {
+    onerror: (error) =>
+      logger.warn({ err: error.message }, "MCP adapter error"),
+  });
   app.use((req, res, next) => {
     if (!(
       req.path === "/mcp" ||
@@ -208,8 +224,11 @@ export function createApp(gateway: Gateway, config: Config) {
   });
   app.use("/api", adminRouter(gateway, config));
   app.post("/mcp", async (req, res) => {
-    const identity = gateway.auth.resolve(bearer(req));
-    await serveMcp(req, res, createMcp(gateway, identity));
+    const raw = bearer(req);
+    const identity = gateway.auth.resolve(raw);
+    (req as express.Request & { auth?: ReturnType<typeof authInfoFor> }).auth =
+      authInfoFor(raw, identity);
+    await mcpNodeHandler(req, res, req.body);
   });
   app.all("/mcp", (req, res) => {
     gateway.auth.resolve(bearer(req));
@@ -253,6 +272,11 @@ export function createApp(gateway: Gateway, config: Config) {
       const activity = requestActivity.getStore();
       if (activity) activity.errorCode = safe.code;
       if (res.headersSent) return;
+      if (status === 401 && _req.path === "/mcp")
+        res.setHeader(
+          "WWW-Authenticate",
+          'Bearer realm="dbmux", error="invalid_token"',
+        );
       res.status(status).json({ success: false, error: safe });
     },
   );

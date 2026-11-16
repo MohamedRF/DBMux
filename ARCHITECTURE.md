@@ -2,7 +2,7 @@
 
 DBMux is an independent MCP-first development gateway. Database credentials stay on the server, encrypted with AES-256-GCM. Developers receive individually revocable, hashed bearer tokens scoped to connections and explicit permissions.
 
-Streamable HTTP and the admin API call application services. SQL enters one policy and audit boundary before adapters acquire pooled connections. Oracle Thin mode and PostgreSQL implement the same adapter interface. SQLite stores application metadata, encrypted configurations, identities, tokens, confirmations, snapshots, migrations and audit events.
+Streamable HTTP and the admin API call application services. `/mcp` serves MCP protocol revisions `2026-07-28` (stateless, `server/discover`, per-request `_meta` envelope, required `MCP-Protocol-Version`/`Mcp-Method`/`Mcp-Name` headers) and 2025-era stateless on the same path; bearer tokens are pass-through authenticated by the HTTP layer and identities are re-resolved per request and per tool call. SQL enters one policy and audit boundary before adapters acquire pooled connections. Oracle Thin mode and PostgreSQL implement the same adapter interface. SQLite stores application metadata, encrypted configurations, identities, tokens, confirmations, snapshots, migrations and audit events.
 
 Oracle DDL implicitly commits; migrations report partial progress rather than promising rollback. PostgreSQL transactions retain a single physical client. Transactions are owner-bound, serialized, expire and roll back during shutdown. Arbitrary procedural blocks are denied because their effects cannot be safely inferred.
 

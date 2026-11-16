@@ -209,7 +209,7 @@ $env:DB_MCP_TOKEN = "YOUR_PERSONAL_TOKEN"
 
 Launch your client from that shell, or use its supported environment configuration. Desktop clients must be able to read the same variable. Keep real tokens out of committed configuration files and shell scripts.
 
-The browser's **MCP installation** page provides client-specific configuration, file locations and copy buttons. Follow the [MCP client guide](docs/mcp-clients.md) for **Codex, Claude Code, Cursor and VS Code**; environment expansion differs between clients. DBMux uses authenticated, stateless **Streamable HTTP** at `/mcp`.
+The browser's **MCP installation** page provides client-specific configuration, file locations and copy buttons. Follow the [MCP client guide](docs/mcp-clients.md) for **Codex, Claude Code, Cursor and VS Code**; environment expansion differs between clients. DBMux serves authenticated, stateless **Streamable HTTP** at `/mcp` on both protocol revisions — `2026-07-28` (current clients: stateless requests, `server/discover`, per-request `_meta` envelope) and 2025-era `initialize` (older clients) — with `WWW-Authenticate` challenges on `401`. If a client refuses to connect, the guide includes a curl probe that distinguishes a rejected token from a broken client config.
 
 For process-based clients, use the [local STDIO bridge](bridge/README.md). Install its dependencies separately with `npm ci` in `bridge/`. It inherits `DB_MCP_TOKEN` and forwards MCP messages without database drivers. The proposed bridge package is not published to npm; use the checked-out local file. The bridge accepts HTTPS or loopback HTTP only.
 
@@ -309,14 +309,14 @@ The public browser guide lives at `/guide.html`. For token editing/rotation, das
 
 ## Troubleshooting
 
-| Symptom                               | Check                                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Startup fails                         | `SETUP_TOKEN` length, master key format and file permissions; do not regenerate an existing key. |
-| No connections appear                 | Connection MCP enablement and the token's permitted connection IDs.                              |
-| Client authentication fails           | Token expiry/revocation and whether the client process can read `DB_MCP_TOKEN`.                  |
-| Docker cannot reach a host database   | Use `host.docker.internal`; verify routing, port and database firewall rules.                    |
-| A statement is denied                 | Effective grants, allowed schemas, blocked objects, disabled tools and supported SQL syntax.     |
-| A migration failed or remains pending | Check migration history and actual database state before deciding how to recover.                |
+| Symptom                               | Check                                                                                                                                                                                                                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Startup fails                         | `SETUP_TOKEN` length, master key format and file permissions; do not regenerate an existing key.                                                                                                                                                                                  |
+| No connections appear                 | Connection MCP enablement and the token's permitted connection IDs.                                                                                                                                                                                                               |
+| Client authentication fails           | Token expiry/revocation and whether the client process can read `DB_MCP_TOKEN`; confirm with the curl probe in [MCP client guide](docs/mcp-clients.md#verify-with-curl-before-debugging-your-client) — `401` + `WWW-Authenticate` means the token, `200` means the client config. |
+| Docker cannot reach a host database   | Use `host.docker.internal`; verify routing, port and database firewall rules.                                                                                                                                                                                                     |
+| A statement is denied                 | Effective grants, allowed schemas, blocked objects, disabled tools and supported SQL syntax.                                                                                                                                                                                      |
+| A migration failed or remains pending | Check migration history and actual database state before deciding how to recover.                                                                                                                                                                                                 |
 
 ## Develop and contribute
 
